@@ -1,0 +1,8 @@
+lint:
+    tox -e lint
+
+format:
+    tox -e format
+
+integration:
+    tox -e integration
