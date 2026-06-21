@@ -26,3 +26,13 @@ resource "juju_application" "pgbouncer" {
     revision = var.pgbouncer.revision
   }
 }
+
+module "airflow_coordinator" {
+  source     = "git::https://github.com/canonical/airflow-coordinator-k8s-operator//terraform?ref=airflow-coordinator-rev21"
+  model_uuid = var.model_uuid
+  app_name   = var.airflow_coordinator.app_name
+  channel    = var.airflow_coordinator.channel
+  units      = var.airflow_coordinator.units
+  config     = var.airflow_coordinator.config
+  revision   = var.airflow_coordinator.revision
+}

@@ -29,3 +29,16 @@ variable "pgbouncer" {
   })
   default = {}
 }
+
+
+variable "airflow_coordinator" {
+  description = "Inputs for airflow-coordinator-k8s charm module."
+  type = object({
+    app_name = optional(string, "airflow-coordinator")
+    channel  = optional(string, "3.1/edge")
+    units    = optional(number, 1)
+    config   = optional(map(string), {})
+    revision = optional(number, null)
+  })
+  default = {}
+}

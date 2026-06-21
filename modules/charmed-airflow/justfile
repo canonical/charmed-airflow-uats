@@ -1,8 +1,39 @@
-lint:
-    tox -e lint
 
-format:
-    tox -e format
+set export := true
 
-integration:
-    tox -e integration
+model_name := "uats-test"
+
+default:
+    @just --list
+
+[private]
+destroy-model:
+    juju destroy-model --no-prompt --destroy-storage {{model_name}} --force || true
+
+add-model: (destroy-model)
+    juju add-model {{model_name}}
+
+validate_test_tfvars variables_file:
+    #!/usr/bin/bash
+    set -euxo pipefail
+    sed -i '/^model_uuid[[:space:]]*=/d' "${variables_file}"
+    MODEL_UUID=$(juju show-model {{model_name}} --format=json | jq -r '."{{model_name}}"["model-uuid"]')
+    juju show-model "${MODEL_UUID}" >/dev/null 2>&1
+    echo "model_uuid = \"${MODEL_UUID}\"" >> "${variables_file}"
+
+
+[private]
+initialize:
+    #!/usr/bin/bash
+    if [ ! -d ".terraform" ]; then
+        terraform init
+    fi
+
+apply variables_file: (initialize)
+    terraform apply -var-file="{{variables_file}}" -auto-approve
+
+destroy variables_file:
+    #!/usr/bin/bash
+    set -euxo pipefail
+    terraform destroy -var-file="{{variables_file}}" -auto-approve || true
+    just destroy-model
