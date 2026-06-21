@@ -37,3 +37,9 @@ destroy variables_file:
     set -euxo pipefail
     terraform destroy -var-file="{{variables_file}}" -auto-approve || true
     just destroy-model
+
+# Configure fernet key secret for airflow-coordinator
+setup-fernet-key:
+    #!/usr/bin/bash
+    set -euxo pipefail
+    test/setup_fernet_key.sh
