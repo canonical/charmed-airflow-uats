@@ -42,3 +42,51 @@ variable "airflow_coordinator" {
   })
   default = {}
 }
+
+variable "airflow_api_server" {
+  description = "Inputs for airflow-api-server-k8s charm module."
+  type = object({
+    app_name = optional(string, "airflow-api-server")
+    channel  = optional(string, "3.1/edge")
+    units    = optional(number, 1)
+    config   = optional(map(string), {})
+    revision = optional(number, null)
+  })
+  default = {}
+}
+
+variable "airflow_scheduler" {
+  description = "Inputs for airflow-scheduler-k8s charm module."
+  type = object({
+    app_name = optional(string, "airflow-scheduler")
+    channel  = optional(string, "3.1/edge")
+    units    = optional(number, 1)
+    config   = optional(map(string), {})
+    revision = optional(number, null)
+  })
+  default = {}
+}
+
+variable "airflow_triggerer" {
+  description = "Inputs for airflow-triggerer-k8s charm module."
+  type = object({
+    app_name = optional(string, "airflow-triggerer")
+    channel  = optional(string, "3.1/edge")
+    units    = optional(number, 1)
+    config   = optional(map(string), {})
+    revision = optional(number, null)
+  })
+  default = {}
+}
+
+variable "airflow_dag_processor" {
+  description = "Inputs for airflow-dag-processor-k8s charm module."
+  type = object({
+    app_name = optional(string, "airflow-dag-processor")
+    channel  = optional(string, "3.1/edge")
+    units    = optional(number, 1)
+    config   = optional(map(string), {})
+    revision = optional(number, null)
+  })
+  default = {}
+}
