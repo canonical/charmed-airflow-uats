@@ -46,9 +46,6 @@ clear-state:
     #!/usr/bin/bash
     terraform state list | xargs -r terraform state rm
 
-# ---------------------------------------------------------------------------
-# Full deploy workflow
-# ---------------------------------------------------------------------------
 
 # Deploy Charmed Airflow and configure fernet key
 deploy variables_file: (add-model) (validate_test_tfvars variables_file) (apply variables_file) (configure-fernet-key)
