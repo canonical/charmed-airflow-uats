@@ -23,3 +23,4 @@ build/
 .vscode/
 *.swp
 *~
+**/terraform.tfstate*.backup
