@@ -1,4 +1,4 @@
 postgresql = {
   profile = "testing"
 }
-model_uuid = "45beaef1-74ab-4e06-82f8-0154f921f364"
+model_uuid = "7eee2fcd-f2b9-4e99-86a7-cb538d72f109"
