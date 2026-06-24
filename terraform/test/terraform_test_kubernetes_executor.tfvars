@@ -1,6 +1,4 @@
-postgresql = {
-  profile = "testing"
-}
+# model_uuid is injected at runtime by the justfile.
 executor = "kubernetes"
 airflow_kubernetes_executor = {
   config = {

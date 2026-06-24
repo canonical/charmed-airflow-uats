@@ -21,18 +21,20 @@ resource "juju_secret" "fernet_key" {
 # Deploy Charmed Airflow, passing the secret URI into coordinator config
 module "charmed_airflow" {
   source = "git::https://github.com/canonical/charmed-airflow-solutions//modules/charmed-airflow?ref=track/3.1"
-  model_uuid            = var.model_uuid
-  postgresql            = var.postgresql
-  pgbouncer             = var.pgbouncer
-  airflow_api_server    = var.airflow_api_server
-  airflow_scheduler     = var.airflow_scheduler
-  airflow_triggerer     = var.airflow_triggerer
-  airflow_dag_processor = var.airflow_dag_processor
-  airflow_coordinator = merge(var.airflow_coordinator, {
-    config = merge(var.airflow_coordinator.config, {
+
+  model_uuid = var.model_uuid
+  executor                    = var.executor
+  airflow_kubernetes_executor = var.airflow_kubernetes_executor
+
+  postgresql = {
+    profile = "testing"
+  }
+
+  airflow_coordinator = {
+    config = {
       fernet_key_secret = juju_secret.fernet_key.secret_uri
-    })
-  })
+    }
+  }
 
   depends_on = [juju_secret.fernet_key]
 }
