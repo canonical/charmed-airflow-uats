@@ -20,7 +20,7 @@ resource "juju_secret" "fernet_key" {
 
 # Deploy Charmed Airflow, passing the secret URI into coordinator config
 module "charmed_airflow" {
-  source                = "../charmed-airflow"
+  source = "git::https://github.com/canonical/charmed-airflow-solutions//modules/charmed-airflow?ref=track/3.1"
   model_uuid            = var.model_uuid
   postgresql            = var.postgresql
   pgbouncer             = var.pgbouncer
@@ -41,7 +41,7 @@ module "charmed_airflow" {
 resource "juju_access_secret" "fernet_key" {
   model_uuid   = var.model_uuid
   secret_id    = juju_secret.fernet_key.secret_id
-  applications = [module.charmed_airflow.applications.airflow_coordinator.application.name]
+  applications = [module.charmed_airflow.applications.airflow.coordinator.application.name]
 
   depends_on = [module.charmed_airflow]
 }

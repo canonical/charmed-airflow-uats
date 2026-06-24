@@ -42,14 +42,24 @@ configure-fernet-key:
     juju config airflow-coordinator fernet_key_secret="${SECRET_URI}" -m {{model_name}}
 
 [private]
+create-namespace ns:
+    #!/usr/bin/bash
+    set -euxo pipefail
+    command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
+    kubectl create namespace "{{ ns }}" --dry-run=client -o yaml | kubectl apply -f -
+
+[private]
 clear-state:
     #!/usr/bin/bash
     terraform state list | xargs -r terraform state rm
 
-
 # Deploy Charmed Airflow and configure fernet key
 deploy variables_file: (add-model) (validate_test_tfvars variables_file) (apply variables_file) (configure-fernet-key)
     @echo "Charmed Airflow deployed and configured successfully."
+
+
+deploy-k8s-executor: (create-namespace "airflow-executor-workers")
+    just deploy test/terraform_test_kubernetes_executor.tfvars
 
 # Destroy terraform resources and model
 destroy variables_file: (clear-state)
