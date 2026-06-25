@@ -16,7 +16,7 @@ lint = [
 format = [
 	"ruff",
 ]
-integration = [
+uat = [
 	"pytest",
 ]
 

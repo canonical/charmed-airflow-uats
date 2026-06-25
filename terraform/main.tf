@@ -36,7 +36,6 @@ module "charmed_airflow" {
     }
   }
 
-  depends_on = [juju_secret.fernet_key]
 }
 
 # Grant the secret to the coordinator AFTER it's deployed

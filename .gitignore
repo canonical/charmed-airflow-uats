@@ -10,8 +10,6 @@ build/
 .uv/
 .ruff_cache/
 
-#
-
 # Terraform
 **/.terraform/
 **/terraform.tfstate

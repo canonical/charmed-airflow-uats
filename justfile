@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 set export
@@ -36,6 +36,10 @@ apply model_name variables_file: (initialize)
     terraform -chdir=terraform apply -auto-approve -var-file="../{{variables_file}}"
 
 [private]
+wait-for-coordinator model_name:
+    juju wait-for unit airflow-coordinator/0 --query='name=="airflow-coordinator/0" && (workload-status=="blocked" || workload-status=="active") && agent-status=="idle"' -m {{model_name}} --timeout=10m
+
+[private]
 configure-fernet-key model_name:
     #!/usr/bin/bash
     set -euxo pipefail
@@ -58,7 +62,7 @@ format:
     tox -e format
 
 # Deploy Charmed Airflow with local executor (default)
-deploy model_name variables_file: (add-model model_name) (validate_test_tfvars model_name variables_file) (apply model_name variables_file) (configure-fernet-key model_name)
+deploy model_name variables_file: (add-model model_name) (validate_test_tfvars model_name variables_file) (apply model_name variables_file) (wait-for-coordinator model_name) (configure-fernet-key model_name)
     @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
 # Deploy Charmed Airflow with Kubernetes executor
