@@ -11,23 +11,23 @@ source = { virtual = "." }
 format = [
     { name = "ruff" },
 ]
-integration = [
-    { name = "pytest" },
-]
 lint = [
     { name = "codespell" },
     { name = "ruff" },
+]
+uat = [
+    { name = "pytest" },
 ]
 
 [package.metadata]
 
 [package.metadata.requires-dev]
 format = [{ name = "ruff" }]
-integration = [{ name = "pytest" }]
 lint = [
     { name = "codespell" },
     { name = "ruff" },
 ]
+uat = [{ name = "pytest" }]
 
 [[package]]
 name = "codespell"

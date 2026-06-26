@@ -13,7 +13,7 @@ build/
 # Terraform
 **/.terraform/
 **/terraform.tfstate
-**/terraform.tfstate.backup
+**/terraform.tfstate*.backup
 **/*.tfplan
 
 # Editor
@@ -21,6 +21,5 @@ build/
 .vscode/
 *.swp
 *~
-**/terraform.tfstate*.backup
 terraform/.terraform.lock.hcl
 terraform/test/terraform_test.tfvars

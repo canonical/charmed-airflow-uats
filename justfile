@@ -35,10 +35,25 @@ apply model_name variables_file="": (initialize)
         terraform -chdir=terraform apply -auto-approve \
             -var="model_uuid=${MODEL_UUID}"
     fi
+    
+[private]
+wait-for-active model_name:
+    #!/usr/bin/env bash
+    set -euxo pipefail
 
-# [private]
-# wait-for-coordinator model_name:
-#     juju wait-for unit airflow-coordinator/0 --query='name=="airflow-coordinator/0" && (workload-status=="blocked" || workload-status=="active") && agent-status=="idle"' -m {{model_name}} --timeout=10m
+    timeout=1200
+    elapsed=0
+    interval=10
+    while [ $elapsed -lt $timeout ]; do
+        if juju wait-for model {{model_name}} \
+            --query='forEach(applications, app => app.status == "active")' \
+            --timeout=${interval}s 2>/dev/null; then
+            exit 0
+        fi
+        elapsed=$((elapsed + interval))
+    done
+    echo "Timed out waiting for model to become active"
+    exit 1
 
 [private]
 configure-fernet-key model_name:
@@ -63,11 +78,11 @@ format:
     tox -e format
 
 # Deploy Charmed Airflow with local executor (default)
-deploy model_name: (add-model model_name) (apply model_name) (configure-fernet-key model_name)
+deploy model_name: (add-model model_name) (apply model_name) (configure-fernet-key model_name) (wait-for-active model_name)
     @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
 # Deploy Charmed Airflow with Kubernetes executor
-deploy-k8s-executor model_name: (create-namespace "airflow-executor-workers") (add-model model_name) (apply model_name "terraform/test/terraform_test_kubernetes_executor.tfvars") (configure-fernet-key model_name)
+deploy-k8s-executor model_name: (create-namespace "airflow-executor-workers") (add-model model_name) (apply model_name "terraform/test/terraform_test_kubernetes_executor.tfvars") (configure-fernet-key model_name) (wait-for-active model_name)
     @echo "Charmed Airflow deployed successfully in model {{model_name}}." 
 
 # Destroy Charmed Airflow deployment
@@ -80,4 +95,4 @@ destroy model_name:
     fi
     terraform -chdir=terraform state list | xargs -r terraform -chdir=terraform state rm
     just destroy-model {{model_name}}
-    
+
