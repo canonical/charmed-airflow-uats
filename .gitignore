@@ -22,3 +22,5 @@ build/
 *.swp
 *~
 **/terraform.tfstate*.backup
+terraform/.terraform.lock.hcl
+terraform/test/terraform_test.tfvars

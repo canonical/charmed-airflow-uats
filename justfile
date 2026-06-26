@@ -16,15 +16,6 @@ add-model model_name: (destroy-model model_name)
     juju add-model {{model_name}}
 
 [private]
-validate_test_tfvars model_name variables_file:
-    #!/usr/bin/bash
-    set -euxo pipefail
-    sed -i '/^model_uuid[[:space:]]*=/d' "${variables_file}"
-    MODEL_UUID=$(juju show-model {{model_name}} --format=json | jq -r '."{{model_name}}"["model-uuid"]')
-    juju show-model "${MODEL_UUID}" >/dev/null 2>&1
-    echo "model_uuid = \"${MODEL_UUID}\"" >> "${variables_file}"
-
-[private]
 initialize:
     #!/usr/bin/bash
     if [ ! -d "terraform/.terraform" ]; then
@@ -32,12 +23,22 @@ initialize:
     fi
 
 [private]
-apply model_name variables_file: (initialize)
-    terraform -chdir=terraform apply -auto-approve -var-file="../{{variables_file}}"
+apply model_name variables_file="": (initialize)
+    #!/usr/bin/bash
+    set -euxo pipefail
+    MODEL_UUID=$(juju show-model {{model_name}} --format=json | jq -r '."{{model_name}}"["model-uuid"]')
+    if [ -n "{{variables_file}}" ]; then
+        terraform -chdir=terraform apply -auto-approve \
+            -var="model_uuid=${MODEL_UUID}" \
+            -var-file="../{{variables_file}}"
+    else
+        terraform -chdir=terraform apply -auto-approve \
+            -var="model_uuid=${MODEL_UUID}"
+    fi
 
-[private]
-wait-for-coordinator model_name:
-    juju wait-for unit airflow-coordinator/0 --query='name=="airflow-coordinator/0" && (workload-status=="blocked" || workload-status=="active") && agent-status=="idle"' -m {{model_name}} --timeout=10m
+# [private]
+# wait-for-coordinator model_name:
+#     juju wait-for unit airflow-coordinator/0 --query='name=="airflow-coordinator/0" && (workload-status=="blocked" || workload-status=="active") && agent-status=="idle"' -m {{model_name}} --timeout=10m
 
 [private]
 configure-fernet-key model_name:
@@ -62,20 +63,21 @@ format:
     tox -e format
 
 # Deploy Charmed Airflow with local executor (default)
-deploy model_name variables_file: (add-model model_name) (validate_test_tfvars model_name variables_file) (apply model_name variables_file) (wait-for-coordinator model_name) (configure-fernet-key model_name)
+deploy model_name: (add-model model_name) (apply model_name) (configure-fernet-key model_name)
     @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
 # Deploy Charmed Airflow with Kubernetes executor
-deploy-k8s-executor model_name: (create-namespace "airflow-executor-workers")
-    just deploy {{model_name}} terraform/test/terraform_test_kubernetes_executor.tfvars
+deploy-k8s-executor model_name: (create-namespace "airflow-executor-workers") (add-model model_name) (apply model_name "terraform/test/terraform_test_kubernetes_executor.tfvars") (configure-fernet-key model_name)
+    @echo "Charmed Airflow deployed successfully in model {{model_name}}." 
 
 # Destroy Charmed Airflow deployment
-destroy model_name variables_file:
+destroy model_name:
     #!/usr/bin/bash
     set -euxo pipefail
-    if juju show-model {{model_name}} >/dev/null 2>&1; then
-        just validate_test_tfvars {{model_name}} {{variables_file}}
+    if MODEL_UUID=$(juju show-model {{model_name}} --format=json | jq -r '."{{model_name}}"["model-uuid"]' 2>/dev/null); then
+        terraform -chdir=terraform destroy -auto-approve \
+            -var="model_uuid=${MODEL_UUID}" || true
     fi
-    terraform -chdir=terraform destroy -auto-approve -var-file="../{{variables_file}}" || true
     terraform -chdir=terraform state list | xargs -r terraform -chdir=terraform state rm
     just destroy-model {{model_name}}
+    
