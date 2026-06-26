@@ -20,24 +20,20 @@ sudo snap install concierge --classic
 sudo concierge prepare -p k8s
 ```
 
-### Testing instructions
+## Testing instructions
 
 ### Local executor (default)
 
 ```bash
-just deploy <model_name> terraform/test/terraform_test.tfvars
+just deploy <model_name>
+just destroy <model_name>
 ```
 
 ### Kubernetes executor
 
 ```bash
 just deploy-k8s-executor <model_name>
-```
-
-### Tear down
-
-```bash
-just destroy <model_name> terraform/test/terraform_test.tfvars
+just destroy <model_name>
 ```
 
 ## Lint & Format
