@@ -35,22 +35,17 @@ apply model_name variables_file="": (initialize)
         terraform -chdir=terraform apply -auto-approve \
             -var="model_uuid=${MODEL_UUID}"
     fi
-    
+
 [private]
 wait-for-active model_name:
     #!/usr/bin/env bash
     set -euxo pipefail
-
-    timeout=1200
-    elapsed=0
-    interval=10
-    while [ $elapsed -lt $timeout ]; do
+    for i in {1..120}; do
         if juju wait-for model {{model_name}} \
             --query='forEach(applications, app => app.status == "active")' \
-            --timeout=${interval}s 2>/dev/null; then
+            --timeout=10s 2>/dev/null; then
             exit 0
         fi
-        elapsed=$((elapsed + interval))
     done
     echo "Timed out waiting for model to become active"
     exit 1
@@ -67,7 +62,7 @@ create-namespace ns:
     #!/usr/bin/bash
     set -euxo pipefail
     command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
-    kubectl create namespace "{{ ns }}" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create namespace "{{ ns }}" || true
 
 # Lint source code
 lint:
@@ -78,12 +73,21 @@ format:
     tox -e format
 
 # Deploy Charmed Airflow with local executor (default)
-deploy model_name: (add-model model_name) (apply model_name) (configure-fernet-key model_name) (wait-for-active model_name)
+deploy model_name:
+    just add-model {{model_name}}
+    just apply {{model_name}}
+    just configure-fernet-key {{model_name}}
+    just wait-for-active {{model_name}}
     @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
 # Deploy Charmed Airflow with Kubernetes executor
-deploy-k8s-executor model_name: (create-namespace "airflow-executor-workers") (add-model model_name) (apply model_name "terraform/test/terraform_test_kubernetes_executor.tfvars") (configure-fernet-key model_name) (wait-for-active model_name)
-    @echo "Charmed Airflow deployed successfully in model {{model_name}}." 
+deploy-k8s-executor model_name:
+    just create-namespace "airflow-executor-workers"
+    just add-model {{model_name}}
+    just apply {{model_name}} "terraform/test/terraform_test_kubernetes_executor.tfvars"
+    just configure-fernet-key {{model_name}}
+    just wait-for-active {{model_name}}
+    @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
 # Destroy Charmed Airflow deployment
 destroy model_name:
@@ -93,6 +97,5 @@ destroy model_name:
         terraform -chdir=terraform destroy -auto-approve \
             -var="model_uuid=${MODEL_UUID}" || true
     fi
-    terraform -chdir=terraform state list | xargs -r terraform -chdir=terraform state rm
+    terraform -chdir=terraform state rm $(terraform -chdir=terraform state list) || true
     just destroy-model {{model_name}}
-
