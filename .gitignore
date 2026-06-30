@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+.tox/
+.uv/
+.ruff_cache/
+
+# Terraform
+**/.terraform/
+**/terraform.tfstate
+**/terraform.tfstate*.backup
+**/*.tfplan
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~
+terraform/.terraform.lock.hcl
+terraform/test/terraform_test.tfvars
