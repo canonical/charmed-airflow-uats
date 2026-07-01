@@ -1,0 +1,39 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+command:
+  'postgresql active':
+    exit-status: 0
+    exec: juju wait-for application --model "${model_name}" postgresql --query='name == "postgresql" && status == "active"'
+  'pgbouncer active':
+    exit-status: 0
+    exec: juju wait-for application --model "${model_name}" pgbouncer --query='name == "pgbouncer" && status == "active"'
+  'airflow coordinator active':
+    exit-status: 0
+    exec: juju wait-for application --model "${model_name}" airflow-coordinator --query='name == "airflow-coordinator" && status == "active"'
+  'airflow api server active':
+    exit-status: 0
+    exec: juju wait-for application --model "${model_name}" airflow-api-server --query='name == "airflow-api-server" && status == "active"'
+  'airflow scheduler active':
+    exit-status: 0
+    exec: juju wait-for application --model "${model_name}" airflow-scheduler --query='name == "airflow-scheduler" && status == "active"'
+  'airflow triggerer active':
+    exit-status: 0
+    exec: juju wait-for application --model "${model_name}" airflow-triggerer --query='name == "airflow-triggerer" && status == "active"'
+  'airflow dag processor active':
+    exit-status: 0
+    exec: juju wait-for application --model "${model_name}" airflow-dag-processor --query='name == "airflow-dag-processor" && status == "active"'
+  'airflow api health check':
+    exit-status: 0
+    exec: |
+      api_ip=$(juju status --model "${model_name}" | grep 'airflow-api-server/0' | awk '{print $4}')
+      curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "http://${api_ip}:8080/api/v2/monitor/health" | jq -e 'all(.[]; .status == "healthy")'
+    stdout:
+      - "true"
+  'airflow api version check':
+    exit-status: 0
+    exec: |
+      api_ip=$(juju status --model "${model_name}" | grep 'airflow-api-server/0' | awk '{print $4}')
+      curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "http://${api_ip}:8080/api/v2/version" | jq -e '.version | startswith("3.1")'
+    stdout:
+      - "true"

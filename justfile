@@ -99,3 +99,21 @@ destroy model_name:
     fi
     terraform -chdir=terraform state rm $(terraform -chdir=terraform state list) || true
     just destroy-model {{model_name}}
+
+[private]
+goss-checks gossfiles:
+    goss {{gossfiles}} validate --retry-timeout=600s --sleep 15s --color
+
+# Run goss smoke tests (active status + API health) with local executor
+uats model_name: (deploy model_name)
+    #!/usr/bin/bash
+    set -euxo pipefail
+    trap 'just destroy {{model_name}}' EXIT
+    just goss-checks "--gossfile goss.yaml"
+
+# Run goss smoke tests (active status + API health) with Kubernetes executor
+uats-k8s-executor model_name: (deploy-k8s-executor model_name)
+    #!/usr/bin/bash
+    set -euxo pipefail
+    trap 'just destroy {{model_name}}' EXIT
+    just goss-checks "--gossfile goss.yaml --gossfile goss_kubernetes_executor.yaml"
