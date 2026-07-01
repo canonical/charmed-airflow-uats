@@ -1,7 +1,5 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
-#
-# Extra check for the Kubernetes-executor deployment variant.
 command:
   'airflow kubernetes executor active':
     exit-status: 0
