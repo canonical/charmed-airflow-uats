@@ -3,16 +3,6 @@ name: UAT tests
 on:
   pull_request:
   workflow_dispatch:
-    inputs:
-      executor:
-        description: Executor variant to run
-        required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - local
-          - k8s-executor
 
 permissions:
   contents: read
@@ -20,7 +10,6 @@ permissions:
 jobs:
   uats:
     name: Run UATs (${{ matrix.executor }})
-    if: github.event_name == 'pull_request' || inputs.executor == 'all' || inputs.executor == matrix.executor
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -61,7 +50,10 @@ jobs:
           sudo k8s kubectl config view --raw > ~/.kube/config
           uv tool install tox
 
-      # TODO: deploy model and run tests once the goss test cases and pytest-based UATs land.
+      # TODO: deploy model and run tests once the goss test cases
+      # (and/or pytest-based UATs) land. See:
+      #   - goss.yaml / goss_kubernetes_executor.yaml
+      #   - just uats / just uats-k8s-executor
 
       - name: Get system state (if failure)
         if: failure()
