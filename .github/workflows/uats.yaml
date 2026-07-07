@@ -49,10 +49,6 @@ jobs:
         run: |
           set -e
 
-          goss_base_url="https://github.com/goss-org/goss/releases/latest/download"
-          curl -L ${goss_base_url}/goss-linux-amd64 -o /usr/local/bin/goss
-          chmod +rx /usr/local/bin/goss
-
           sudo apt-get purge -y $(dpkg -l | grep -i docker | awk '{print $2}') || true
           sudo apt-get purge -y containerd.io || true
           sudo rm -r /run/containerd || true
@@ -65,16 +61,8 @@ jobs:
           sudo k8s kubectl config view --raw > ~/.kube/config
           uv tool install tox
 
-      - name: Deploy model and run goss checks
-        run: |
-          set -euxo pipefail
-          model_name="uats-${{ matrix.executor }}"
-          if [ "${{ matrix.executor }}" = "local" ]; then
-            just uats "${model_name}"
-          else
-            just uats-k8s-executor "${model_name}"
-          fi
+      # TODO: deploy model and run tests once the goss test cases and pytest-based UATs land.
 
       - name: Get system state (if failure)
         if: failure()
-        run: juju status --model "uats-${{ matrix.executor }}" --color --relations --storage || true
+        run: just get-system-state "uats-${{ matrix.executor }}"
