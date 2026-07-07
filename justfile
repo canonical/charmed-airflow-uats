@@ -89,6 +89,17 @@ deploy-k8s-executor model_name:
     just wait-for-active {{model_name}}
     @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
+# Print system state for debugging (juju status, k8s, disk)
+get-system-state model_name:
+    #!/usr/bin/bash
+    df -h
+    echo "---"
+    juju status --model {{model_name}} --color --relations --storage || true
+    echo "---"
+    sudo k8s status || true
+    echo "---"
+    terraform -chdir=terraform state list || true
+
 # Destroy Charmed Airflow deployment
 destroy model_name:
     #!/usr/bin/bash

@@ -1,0 +1,80 @@
+name: UAT tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      executor:
+        description: Executor variant to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - local
+          - k8s-executor
+
+permissions:
+  contents: read
+
+jobs:
+  uats:
+    name: Run UATs (${{ matrix.executor }})
+    if: github.event_name == 'pull_request' || inputs.executor == 'all' || inputs.executor == matrix.executor
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        executor:
+          - local
+          - k8s-executor
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.executor }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+    steps:
+      - name: Maximize GH runner disk
+        uses: jlumbroso/free-disk-space@v1.3.1
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Set up operator environment
+        run: |
+          set -e
+
+          goss_base_url="https://github.com/goss-org/goss/releases/latest/download"
+          curl -L ${goss_base_url}/goss-linux-amd64 -o /usr/local/bin/goss
+          chmod +rx /usr/local/bin/goss
+
+          sudo apt-get purge -y $(dpkg -l | grep -i docker | awk '{print $2}') || true
+          sudo apt-get purge -y containerd.io || true
+          sudo rm -r /run/containerd || true
+
+          sudo snap install concierge --classic
+          sudo snap install just --classic
+          sudo -E concierge prepare -p k8s --extra-snaps=astral-uv
+          sudo k8s enable ingress
+          mkdir -p ~/.kube
+          sudo k8s kubectl config view --raw > ~/.kube/config
+          uv tool install tox
+
+      - name: Deploy model and run goss checks
+        run: |
+          set -euxo pipefail
+          model_name="uats-${{ matrix.executor }}"
+          if [ "${{ matrix.executor }}" = "local" ]; then
+            just uats "${model_name}"
+          else
+            just uats-k8s-executor "${model_name}"
+          fi
+
+      - name: Get system state (if failure)
+        if: failure()
+        run: juju status --model "uats-${{ matrix.executor }}" --color --relations --storage || true
