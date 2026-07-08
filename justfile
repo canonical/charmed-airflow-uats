@@ -66,11 +66,11 @@ create-namespace ns:
 
 # Lint source code
 lint:
-    tox -e lint
+    uv tool run --python 3.12 tox -e lint
 
 # Format source code
 format:
-    tox -e format
+    uv tool run --python 3.12 tox -e format
 
 # Deploy Charmed Airflow with local executor (default)
 deploy model_name:
@@ -110,3 +110,21 @@ destroy model_name:
     fi
     terraform -chdir=terraform state rm $(terraform -chdir=terraform state list) || true
     just destroy-model {{model_name}}
+
+# Execute the UATs for the Airflow Identity integration
+uats-identity airflow_model_name="" identity_model_name="":
+    #!/usr/bin/bash
+    set -euxo pipefail
+
+    # TODO: uncomment once ready
+    # just deploy ${airflow_model_name}
+
+    # just wait-for-active ${airflow_model_name}
+    # just wait-for-active ${identity_model_name}
+
+    uv tool run --python 3.12 tox -e uats-identity -- \
+        --airflow-model="${airflow_model_name:-airflow}" \
+        --identity-model="${identity_model_name:-identity}"
+
+uats airflow_model_name="" identity_model_name="":
+    just uats-identity ${airflow_model_name} ${identity_model_name}
