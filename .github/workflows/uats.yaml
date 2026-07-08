@@ -9,17 +9,17 @@ permissions:
 
 jobs:
   uats:
-    name: Run UATs (${{ matrix.executor }})
+    name: Run UATs (${{ matrix.uat }})
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        executor:
-          - local
-          - k8s-executor
+        uat:
+          - uats-local
+          - uats-k8s-executor
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.executor }}
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.uat }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
     steps:
@@ -38,13 +38,8 @@ jobs:
         run: |
           set -e
 
-          sudo apt-get purge -y $(dpkg -l | grep -i docker | awk '{print $2}') || true
-          sudo apt-get purge -y containerd.io || true
-          sudo rm -r /run/containerd || true
-
           sudo snap install concierge --classic
-          sudo snap install just --classic
-          sudo -E concierge prepare -p k8s --extra-snaps=astral-uv
+          sudo -E concierge prepare -p k8s --extra-snaps=astral-uv,just
           sudo k8s enable ingress
           mkdir -p ~/.kube
           sudo k8s kubectl config view --raw > ~/.kube/config
@@ -57,4 +52,4 @@ jobs:
 
       - name: Get system state (if failure)
         if: failure()
-        run: just get-system-state "uats-${{ matrix.executor }}"
+        run: just get-system-state "${{ matrix.uat }}"
