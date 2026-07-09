@@ -64,12 +64,24 @@ create-namespace ns:
     command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
     kubectl create namespace "{{ ns }}" || true
 
-# Lint source code
+# Terraform fmt
+fmt: (initialize)
+    terraform -chdir=terraform fmt -recursive
+
+# Terraform validate
+validate: (initialize)
+    terraform -chdir=terraform validate
+
+# Terraform lint
 lint:
+    tflint --chdir=terraform
+
+# Lint Python source code
+lint-python:
     uv tool run --python 3.12 tox -e lint
 
-# Format source code
-format:
+# Format Python source code
+format-python:
     uv tool run --python 3.12 tox -e format
 
 # Deploy Charmed Airflow with local executor (default)

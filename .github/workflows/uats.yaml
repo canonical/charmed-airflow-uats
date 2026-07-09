@@ -4,48 +4,12 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   uats:
-    name: Run UATs (${{ matrix.uat }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        uat:
-          - uats-identity
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.uat }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-    steps:
-      - name: Maximize GH runner disk
-        uses: jlumbroso/free-disk-space@v1.3.1
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_wrapper: false
-
-      - name: Set up operator environment
-        run: |
-          set -e
-
-          sudo snap install concierge --classic
-          sudo -E concierge prepare -p k8s --extra-snaps=astral-uv,just
-          sudo k8s enable ingress
-          mkdir -p ~/.kube
-          sudo k8s kubectl config view --raw > ~/.kube/config
-
-      - name: Run UATs
-        run: just ${{ matrix.uat }}
-
-      - name: Get system state (if failure)
-        if: failure()
-        run: just get-system-state
+    name: UATs
+    uses: canonical/workflows-team/.github/workflows/terraform.yaml@main
+    with:
+      module-directory: .
+      extra-snaps: astral-uv
+      just-targets: '["uats-identity"]'
+      timeout-minutes: 40
