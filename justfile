@@ -90,12 +90,15 @@ deploy-k8s-executor model_name:
     @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
 # Print system state for debugging (juju status, k8s, disk)
-get-system-state model_name:
+get-system-state:
     #!/usr/bin/bash
     df -h
     echo "---"
-    juju status --model {{model_name}} --color --relations --storage || true
-    echo "---"
+    for model in $(juju models --format=json | jq -r '.models[]."short-name"'); do
+        echo "=== Model: ${model} ==="
+        juju status --model "${model}" --color --relations --storage || true
+        echo "---"
+    done
     sudo k8s status || true
     echo "---"
     terraform -chdir=terraform state list || true

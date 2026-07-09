@@ -16,8 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         uat:
-          - uats-local
-          - uats-k8s-executor
+          - uats-identity
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.uat }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -43,13 +42,10 @@ jobs:
           sudo k8s enable ingress
           mkdir -p ~/.kube
           sudo k8s kubectl config view --raw > ~/.kube/config
-          uv tool install tox
 
-      # TODO: deploy model and run tests once the goss test cases
-      # (and/or pytest-based UATs) land. See:
-      #   - goss.yaml / goss_kubernetes_executor.yaml
-      #   - just uats / just uats-k8s-executor
+      - name: Run UATs
+        run: just ${{ matrix.uat }}
 
       - name: Get system state (if failure)
         if: failure()
-        run: just get-system-state "${{ matrix.uat }}"
+        run: just get-system-state
