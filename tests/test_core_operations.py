@@ -8,4 +8,4 @@ logger = logging.getLogger(__name__)
 
 def test_stub():
     """Stub core-operations UAT test."""
-    
+
