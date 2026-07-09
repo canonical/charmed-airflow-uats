@@ -145,3 +145,15 @@ uats-identity airflow_model_name="" identity_model_name="":
 
 uats airflow_model_name="" identity_model_name="":
     just uats-identity ${airflow_model_name} ${identity_model_name}
+
+# Execute the core-operations UATs for Charmed Airflow
+uats-core-operations airflow_model_name="":
+    #!/usr/bin/bash
+    set -euxo pipefail
+
+    # TODO: uncomment once ready
+    # just deploy
+    # just wait-for-active
+
+    uv tool run --python 3.12 tox -e uats-core-operations -- \
+        --airflow-model="${airflow_model_name:-airflow}"
