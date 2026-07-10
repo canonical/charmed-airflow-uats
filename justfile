@@ -3,18 +3,16 @@
 
 set export
 
-model_name := "airflow-test"
-
 [private]
 default:
     @just --list
 
 [private]
-destroy-model:
+destroy-model model_name:
     juju destroy-model --no-prompt --destroy-storage {{model_name}} --force || true
 
 [private]
-add-model: destroy-model
+add-model model_name: (destroy-model model_name)
     juju add-model {{model_name}}
 
 [private]
@@ -25,7 +23,7 @@ initialize:
     fi
 
 [private]
-apply variables_file="": (initialize)
+apply model_name variables_file="": (initialize)
     #!/usr/bin/bash
     set -euxo pipefail
     MODEL_UUID=$(juju show-model {{model_name}} --format=json | jq -r '."{{model_name}}"["model-uuid"]')
@@ -39,7 +37,7 @@ apply variables_file="": (initialize)
     fi
 
 [private]
-wait-for-active:
+wait-for-active model_name:
     #!/usr/bin/env bash
     set -euxo pipefail
     for i in {1..120}; do
@@ -53,7 +51,7 @@ wait-for-active:
     exit 1
 
 [private]
-configure-fernet-key:
+configure-fernet-key model_name:
     #!/usr/bin/bash
     set -euxo pipefail
     SECRET_URI=$(juju show-secret fernet-key-secret -m {{model_name}} --format=json | jq -r 'keys[0] | "secret:" + .')
@@ -87,20 +85,20 @@ format-python:
     uv tool run --python 3.12 tox -e format
 
 # Deploy Charmed Airflow with local executor (default)
-deploy:
-    just add-model
-    just apply
-    just configure-fernet-key
-    just wait-for-active
+deploy model_name="airflow":
+    just add-model {{model_name}}
+    just apply {{model_name}}
+    just configure-fernet-key {{model_name}}
+    just wait-for-active {{model_name}}
     @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
 # Deploy Charmed Airflow with Kubernetes executor
-deploy-k8s-executor:
+deploy-k8s-executor model_name="airflow":
     just create-namespace "airflow-executor-workers"
-    just add-model
-    just apply "terraform/test/terraform_test_kubernetes_executor.tfvars"
-    just configure-fernet-key
-    just wait-for-active
+    just add-model {{model_name}}
+    just apply {{model_name}} "terraform/test/terraform_test_kubernetes_executor.tfvars"
+    just configure-fernet-key {{model_name}}
+    just wait-for-active {{model_name}}
     @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
 # Print system state for debugging (juju status, k8s, disk)
@@ -118,7 +116,7 @@ get-system-state:
     terraform -chdir=terraform state list || true
 
 # Destroy Charmed Airflow deployment
-destroy:
+destroy model_name="airflow":
     #!/usr/bin/bash
     set -euxo pipefail
     if MODEL_UUID=$(juju show-model {{model_name}} --format=json | jq -r '."{{model_name}}"["model-uuid"]' 2>/dev/null); then
@@ -126,7 +124,7 @@ destroy:
             -var="model_uuid=${MODEL_UUID}" || true
     fi
     terraform -chdir=terraform state rm $(terraform -chdir=terraform state list) || true
-    just destroy-model
+    just destroy-model {{model_name}}
 
 # Execute the UATs for the Airflow Identity integration
 uats-identity airflow_model_name="" identity_model_name="":
@@ -134,7 +132,7 @@ uats-identity airflow_model_name="" identity_model_name="":
     set -euxo pipefail
 
     # TODO: uncomment once ready
-    # just deploy 
+    # just deploy ${airflow_model_name}
 
     # just wait-for-active ${airflow_model_name}
     # just wait-for-active ${identity_model_name}
@@ -145,15 +143,3 @@ uats-identity airflow_model_name="" identity_model_name="":
 
 uats airflow_model_name="" identity_model_name="":
     just uats-identity ${airflow_model_name} ${identity_model_name}
-
-# Execute the core-operations UATs for Charmed Airflow
-uats-core-operations airflow_model_name="":
-    #!/usr/bin/bash
-    set -euxo pipefail
-
-    # TODO: uncomment once ready
-    # just deploy
-    # just wait-for-active
-
-    uv tool run --python 3.12 tox -e uats-core-operations -- \
-        --airflow-model="${airflow_model_name:-airflow}"
