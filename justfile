@@ -64,16 +64,28 @@ create-namespace ns:
     command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
     kubectl create namespace "{{ ns }}" || true
 
-# Lint source code
+# Terraform fmt
+fmt: (initialize)
+    terraform -chdir=terraform fmt -recursive
+
+# Terraform validate
+validate: (initialize)
+    terraform -chdir=terraform validate
+
+# Terraform lint
 lint:
+    tflint --chdir=terraform
+
+# Lint Python source code
+lint-python:
     uv tool run --python 3.12 tox -e lint
 
-# Format source code
-format:
+# Format Python source code
+format-python:
     uv tool run --python 3.12 tox -e format
 
 # Deploy Charmed Airflow with local executor (default)
-deploy model_name:
+deploy model_name="airflow":
     just add-model {{model_name}}
     just apply {{model_name}}
     just configure-fernet-key {{model_name}}
@@ -81,7 +93,7 @@ deploy model_name:
     @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
 # Deploy Charmed Airflow with Kubernetes executor
-deploy-k8s-executor model_name:
+deploy-k8s-executor model_name="airflow":
     just create-namespace "airflow-executor-workers"
     just add-model {{model_name}}
     just apply {{model_name}} "terraform/test/terraform_test_kubernetes_executor.tfvars"
@@ -89,8 +101,22 @@ deploy-k8s-executor model_name:
     just wait-for-active {{model_name}}
     @echo "Charmed Airflow deployed successfully in model {{model_name}}."
 
+# Print system state for debugging (juju status, k8s, disk)
+get-system-state:
+    #!/usr/bin/bash
+    df -h
+    echo "---"
+    for model in $(juju models --format=json | jq -r '.models[]."short-name"'); do
+        echo "=== Model: ${model} ==="
+        juju status --model "${model}" --color --relations --storage || true
+        echo "---"
+    done
+    sudo k8s status || true
+    echo "---"
+    terraform -chdir=terraform state list || true
+
 # Destroy Charmed Airflow deployment
-destroy model_name:
+destroy model_name="airflow":
     #!/usr/bin/bash
     set -euxo pipefail
     if MODEL_UUID=$(juju show-model {{model_name}} --format=json | jq -r '."{{model_name}}"["model-uuid"]' 2>/dev/null); then

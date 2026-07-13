@@ -1,0 +1,15 @@
+name: UAT tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  uats:
+    name: UATs
+    uses: canonical/workflows-team/.github/workflows/terraform.yaml@main
+    with:
+      module-directory: .
+      extra-snaps: astral-uv
+      just-targets: '["uats-identity"]'
+      timeout-minutes: 40
