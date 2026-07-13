@@ -6,6 +6,12 @@ variable "model_uuid" {
   type        = string
 }
 
+variable "identity_model_uuid" {
+  description = "UUID of the Juju model hosting the identity platform. When empty, identity deployment and OAuth integration are skipped."
+  type        = string
+  default     = ""
+}
+
 variable "executor" {
   description = "The executor type to deploy. When null, LocalExecutor is used. Supported values: \"kubernetes\"."
   type        = string
