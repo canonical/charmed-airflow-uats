@@ -52,15 +52,14 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
 wait-for-active model_name:
     #!/usr/bin/env bash
     set -euxo pipefail
-    for i in {1..120}; do
-        if juju wait-for model ${model_name} \
-            --query='forEach(applications, app => app.status == "active")' \
-            --timeout=10s 2>/dev/null; then
-            exit 0
-        fi
-    done
-    echo "Timed out waiting for model to become active"
-    exit 1
+
+    if ! juju wait-for model ${model_name} \
+        --query='forEach(units,  unit => (unit.workload-status == "active"))' \
+        --timeout=15m; then
+        echo "Timed out waiting for model ${model_name} to become active" >&2
+        exit 1
+    fi
+    echo "Model ${model_name} is active."
 
 [private]
 configure-fernet-key model_name:
@@ -76,12 +75,24 @@ create-namespace ns:
     command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
     kubectl create namespace "${ ns }" || true
 
-# Lint source code
+# Terraform fmt
+fmt: (initialize)
+    terraform -chdir=terraform fmt -recursive
+
+# Terraform validate
+validate: (initialize)
+    terraform -chdir=terraform validate
+
+# Terraform lint
 lint:
+    tflint --chdir=terraform
+
+# Lint Python source code
+lint-python:
     uv tool run --python 3.12 tox -e lint
 
-# Format source code
-format:
+# Format Python source code
+format-python:
     uv tool run --python 3.12 tox -e format
 
 # Deploy Charmed Airflow with local executor (default)
@@ -151,6 +162,20 @@ deploy-identity identity_model_name:
     juju integrate login-ui:ui-endpoint-info hydra:ui-endpoint-info
 
     @echo "Canonical Idenitty Platform deployed successfully in model ${identity_model_name}."
+
+# Print system state for debugging (juju status, k8s, disk)
+get-system-state:
+    #!/usr/bin/bash
+    df -h
+    echo "---"
+    for model in $(juju models --format=json | jq -r '.models[]."short-name"'); do
+        echo "=== Model: ${model} ==="
+        juju status --model "${model}" --color --relations --storage || true
+        echo "---"
+    done
+    sudo k8s status || true
+    echo "---"
+    terraform -chdir=terraform state list || true
 
 # Destroy Charmed Airflow deployment (and optionally the identity model)
 destroy model_name identity_model_name="":
