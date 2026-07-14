@@ -30,18 +30,22 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
     AIRFLOW_MODEL_UUID=$(juju show-model ${airflow_model_name} --format=json | jq -r ".\"${airflow_model_name}\"[\"model-uuid\"]")
     IDENTITY_MODEL_UUID=$(juju show-model ${identity_model_name} --format=json | jq -r ".\"${identity_model_name}\"[\"model-uuid\"]")
 
-    identity_model_options="${IDENTITY_MODEL_UUID:+-var identity_model_uuid=${IDENTITY_MODEL_UUID}}"
+    identity_options=""
+
+    if [ -n "${IDENTITY_MODEL_UUID}" ]; then
+        identity_options+=" -var identity_model_uuid=${IDENTITY_MODEL_UUID}"
+    fi
 
 
     if [ -n "${variables_file}" ]; then
         terraform -chdir=terraform apply -auto-approve \
-            -var "model_uuid=${AIRFLOW_MODEL_UUID}" \
+            -var "airflow_model_uuid=${AIRFLOW_MODEL_UUID}" \
             -var-file="../${variables_file}" \
-            ${identity_model_options}
+            ${identity_options}
     else
         terraform -chdir=terraform apply -auto-approve \
-            -var "model_uuid=${AIRFLOW_MODEL_UUID}" \
-            ${identity_model_options}
+            -var "airflow_model_uuid=${AIRFLOW_MODEL_UUID}" \
+            ${identity_options}
     fi
 
 [private]
@@ -81,41 +85,72 @@ format:
     uv tool run --python 3.12 tox -e format
 
 # Deploy Charmed Airflow with local executor (default)
-deploy model_name:
+deploy model_name identity_model_name="":
     just add-model ${model_name}
 
-    just apply ${model_name}
+    just apply ${model_name} "" ${identity_model_name}
 
     just configure-fernet-key ${model_name}
-
-    just wait-for-active ${model_name}
 
     @echo "Charmed Airflow deployed successfully in model ${model_name}."
 
 # Deploy Charmed Airflow with Kubernetes executor
-deploy-k8s-executor model_name:
+deploy-k8s-executor airflow_model_name:
     just create-namespace "airflow-executor-workers"
-    just add-model ${model_name}
-
-    just apply ${model_name} "terraform/test/terraform_test_kubernetes_executor.tfvars"
-
-    just configure-fernet-key ${model_name}
-
-    just wait-for-active ${model_name}
-
-    @echo "Charmed Airflow deployed successfully in model ${model_name}."
-
-# Deploy the Canonical Identity Platform and integrate it with an existing Airflow deployment
-deploy-identity airflow_model_name identity_model_name:
     just add-model ${airflow_model_name}
-    just add-model ${identity_model_name}
 
-    just apply ${airflow_model_name} "" ${identity_model_name}
+    just apply ${airflow_model_name} "terraform/test/terraform_test_kubernetes_executor.tfvars"
 
-    just wait-for-active ${identity_model_name}
-    just wait-for-active ${airflow_model_name}
+    just configure-fernet-key ${airflow_model_name}
 
-    @echo "Identity platform deployed and integrated with Charmed Airflow."
+    @echo "Charmed Airflow deployed successfully in model ${airflow_model_name}."
+
+# Deploy Canonical Identity Platform in a model
+deploy-identity identity_model_name:
+    juju add-model ${identity_model_name}
+
+    juju deploy self-signed-certificates --channel 1/stable
+    juju deploy traefik-k8s traefik \
+        --channel latest/stable \
+        --base ubuntu@20.04 \
+        --trust
+
+    juju deploy kratos \
+        --channel latest/stable \
+        --base ubuntu@22.04 \
+        --trust
+
+    juju deploy hydra \
+        --channel latest/stable \
+        --base ubuntu@22.04 \
+        --trust
+
+    juju deploy identity-platform-login-ui-operator \
+        login-ui \
+        --channel latest/stable \
+        --base ubuntu@22.04 \
+        --trust
+
+    juju deploy postgresql-k8s \
+        postgres \
+        --channel 14/stable \
+        --trust
+
+    juju integrate self-signed-certificates:certificates traefik:certificates
+
+    juju integrate traefik:traefik-route login-ui:public-route
+    juju integrate traefik:traefik-route hydra:public-route
+    juju integrate traefik:traefik-route kratos:public-route
+
+    juju integrate postgres:database hydra:pg-database
+    juju integrate postgres:database kratos:pg-database
+
+    juju integrate hydra:hydra-endpoint-info kratos:hydra-endpoint-info
+    juju integrate hydra:hydra-endpoint-info login-ui:hydra-endpoint-info
+    juju integrate login-ui:ui-endpoint-info kratos:ui-endpoint-info
+    juju integrate login-ui:ui-endpoint-info hydra:ui-endpoint-info
+
+    @echo "Canonical Idenitty Platform deployed successfully in model ${identity_model_name}."
 
 # Destroy Charmed Airflow deployment (and optionally the identity model)
 destroy model_name identity_model_name="":
@@ -131,7 +166,7 @@ destroy model_name identity_model_name="":
 
     if MODEL_UUID=$(juju show-model ${model_name} --format=json | jq -r ".\"${model_name}\"[\"model-uuid\"]" 2>/dev/null); then
         terraform -chdir=terraform destroy -auto-approve \
-            -var "model_uuid=${MODEL_UUID}" \
+            -var "airflow_model_uuid=${MODEL_UUID}" \
             ${EXTRA_VARS} || true
     fi
 
@@ -144,15 +179,19 @@ destroy model_name identity_model_name="":
     fi
 
 # Execute the UATs for the Airflow Identity integration
-uats-identity airflow_model_name="" identity_model_name="":
+uats-identity airflow_model_name="airflow" identity_model_name="identity":
     #!/usr/bin/bash
     set -euxo pipefail
-    just deploy "${airflow_model_name:-airflow}"
-    just deploy-identity "${airflow_model_name:-airflow}" "${identity_model_name:-identity}"
+
+    just deploy-identity ${identity_model_name}
+    just deploy ${airflow_model_name} ${identity_model_name}
+
+    just wait-for-active ${identity_model_name}
+    just wait-for-active ${airflow_model_name}
 
     uv tool run --python 3.12 tox -e uats-identity -- \
-        --airflow-model="${airflow_model_name:-airflow}" \
-        --identity-model="${identity_model_name:-identity}"
+        --airflow-model="${airflow_model_name}" \
+        --identity-model="${identity_model_name}"
 
-uats airflow_model_name="" identity_model_name="":
+uats airflow_model_name="airflow" identity_model_name="identity":
     just uats-identity ${airflow_model_name} ${identity_model_name}

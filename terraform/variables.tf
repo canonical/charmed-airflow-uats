@@ -1,13 +1,13 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-variable "model_uuid" {
+variable "airflow_model_uuid" {
   description = "UUID of the Juju model to deploy Charmed Airflow into."
   type        = string
 }
 
 variable "identity_model_uuid" {
-  description = "UUID of the Juju model hosting the identity platform. When empty, identity deployment and OAuth integration are skipped."
+  description = "UUID of the Juju model hosting the identity platform. When empty, Identity platform is not deployed"
   type        = string
   default     = ""
 }
