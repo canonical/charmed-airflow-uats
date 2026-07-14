@@ -40,15 +40,14 @@ apply model_name variables_file="": (initialize)
 wait-for-active model_name:
     #!/usr/bin/env bash
     set -euxo pipefail
-    for i in {1..120}; do
-        if juju wait-for model {{model_name}} \
-            --query='forEach(applications, app => app.status == "active")' \
-            --timeout=10s 2>/dev/null; then
-            exit 0
-        fi
-    done
-    echo "Timed out waiting for model to become active"
-    exit 1
+
+    if ! juju wait-for model {{model_name}} \
+        --query='forEach(units,  unit => (unit.workload-status == "active"))' \
+        --timeout=15m; then
+        echo "Timed out waiting for model {{model_name}} to become active" >&2
+        exit 1
+    fi
+    echo "Model {{model_name}} is active."
 
 [private]
 configure-fernet-key model_name:
