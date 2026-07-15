@@ -117,6 +117,8 @@ deploy-k8s-executor airflow_model_name:
     @echo "Charmed Airflow deployed successfully in model ${airflow_model_name}."
 
 # Deploy Canonical Identity Platform in a model
+# TODO: use terraform module to deploy the identity platform when feasible
+# https://github.com/canonical/charmed-airflow-uats/issues/8
 deploy-identity identity_model_name:
     juju add-model ${identity_model_name}
 
