@@ -142,3 +142,41 @@ uats-identity airflow_model_name="" identity_model_name="":
 
 uats airflow_model_name="" identity_model_name="":
     just uats-identity ${airflow_model_name} ${identity_model_name}
+
+# Execute the UAT for Python client connectivity to Airflow (airflowctl + goss)
+uats-core-operations airflow_model_name="":
+    #!/usr/bin/bash
+    set -euxo pipefail
+    uv tool install apache-airflow-ctl --quiet
+
+    airflow_model="{{airflow_model_name}}"
+    airflow_model="${airflow_model:-airflow}"
+    pod_name="airflow-api-server-0"
+    api_url="http://localhost:8080"
+
+    just deploy ${airflow_model}
+    just wait-for-active ${airflow_model}
+
+    kubectl port-forward -n "${airflow_model}" "pod/${pod_name}" 8080:8080 &
+    pf_pid=$!
+    trap 'kill ${pf_pid} 2>/dev/null || true' EXIT
+
+    for _ in $(seq 1 30); do
+        (echo > /dev/tcp/localhost/8080) 2>/dev/null && break
+        sleep 1
+    done
+
+    set +x
+    credentials=$(kubectl exec -n "${airflow_model}" "${pod_name}" -c airflow-api-server -- \
+        cat /opt/airflow/simple_auth_manager_passwords.json.generated)
+    username=$(echo "${credentials}" | jq -r 'to_entries[0].key')
+    password=$(echo "${credentials}" | jq -r 'to_entries[0].value')
+
+    access_token=$(curl -sf -X POST "${api_url}/auth/token" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\": \"${username}\", \"password\": \"${password}\"}" | jq -r '.access_token')
+
+    export AIRFLOW_CLI_TOKEN="${access_token}"
+    set -x
+
+    goss -g tests/goss/goss.yaml validate

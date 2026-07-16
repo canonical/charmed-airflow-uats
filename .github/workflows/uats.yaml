@@ -11,5 +11,5 @@ jobs:
     with:
       module-directory: .
       extra-snaps: astral-uv
-      just-targets: '["uats-identity"]'
+      just-targets: '["uats-identity", "uats-core-operations"]'
       timeout-minutes: 40
