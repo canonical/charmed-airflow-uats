@@ -32,7 +32,7 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
 
     identity_options=""
 
-    if [ -n "${IDENTITY_MODEL_UUID}" ]; then
+    if [ -n "${IDENTITY_MODEL_UUID}" ] && [ "${IDENTITY_MODEL_UUID}" != "null" ]; then
         identity_options+=" -var identity_model_uuid=${IDENTITY_MODEL_UUID}"
     fi
 
@@ -234,10 +234,7 @@ uats-core-operations airflow_model_name="":
     api_url="http://localhost:8080"
 
     just deploy ${airflow_model}
-
-    # Wait for the API server pod to be Ready before port-forwarding
-    echo "Waiting for ${pod_name} to be ready..."
-    kubectl wait -n "${airflow_model}" --for=condition=Ready "pod/${pod_name}" --timeout=120s
+    just wait-for-active ${airflow_model}
 
     kubectl port-forward -n "${airflow_model}" "pod/${pod_name}" 8080:8080 &
     pf_pid=$!
