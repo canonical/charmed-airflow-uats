@@ -9,12 +9,12 @@ resource "random_bytes" "fernet_key" {
 # Create the Juju secret storing the fernet key
 # Fernet requires URL-safe base64 (- and _ instead of + and /, no padding)
 resource "juju_secret" "fernet_key" {
-  model_uuid = var.model_uuid
+  model_uuid = var.airflow_model_uuid
   name       = "fernet-key-secret"
   value = {
     fernet-key = replace(replace(replace(
       random_bytes.fernet_key.base64,
-      "+", "-"), "/", "_"), "=", "")
+    "+", "-"), "/", "_"), "=", "")
   }
 }
 
@@ -22,11 +22,12 @@ resource "juju_secret" "fernet_key" {
 module "charmed_airflow" {
   source = "git::https://github.com/canonical/charmed-airflow-solutions//modules/charmed-airflow?ref=track/3.1"
 
-  model_uuid = var.model_uuid
+  model_uuid                  = var.airflow_model_uuid
   executor                    = var.executor
   airflow_kubernetes_executor = var.airflow_kubernetes_executor
 
   postgresql = {
+    units   = 1
     profile = "testing"
   }
 
@@ -40,7 +41,7 @@ module "charmed_airflow" {
 
 # Grant the secret to the coordinator AFTER it's deployed
 resource "juju_access_secret" "fernet_key" {
-  model_uuid   = var.model_uuid
+  model_uuid   = var.airflow_model_uuid
   secret_id    = juju_secret.fernet_key.secret_id
   applications = [module.charmed_airflow.applications.airflow.coordinator.application.name]
 
