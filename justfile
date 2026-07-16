@@ -143,7 +143,6 @@ uats-identity airflow_model_name="" identity_model_name="":
 uats airflow_model_name="" identity_model_name="":
     just uats-identity ${airflow_model_name} ${identity_model_name}
 
-# Execute the UAT for Python client connectivity to Airflow (airflowctl + goss)
 uats-core-operations airflow_model_name="":
     #!/usr/bin/bash
     set -euxo pipefail
@@ -155,7 +154,10 @@ uats-core-operations airflow_model_name="":
     api_url="http://localhost:8080"
 
     just deploy ${airflow_model}
-    just wait-for-active ${airflow_model}
+
+    # Wait for the API server pod to be Ready before port-forwarding
+    echo "Waiting for ${pod_name} to be ready..."
+    kubectl wait -n "${airflow_model}" --for=condition=Ready "pod/${pod_name}" --timeout=120s
 
     kubectl port-forward -n "${airflow_model}" "pod/${pod_name}" 8080:8080 &
     pf_pid=$!
