@@ -228,8 +228,7 @@ uats-core-operations airflow_model_name="":
     set -euxo pipefail
     uv tool install apache-airflow-ctl --quiet
 
-    airflow_model="{{airflow_model_name}}"
-    airflow_model="${airflow_model:-airflow}"
+    airflow_model="${airflow_model_name:-airflow}"
     pod_name="airflow-api-server-0"
     api_url="http://localhost:8080"
 
