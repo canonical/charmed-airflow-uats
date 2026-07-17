@@ -223,27 +223,29 @@ uats-identity airflow_model_name="airflow" identity_model_name="identity":
 uats airflow_model_name="airflow" identity_model_name="identity":
     just uats-identity ${airflow_model_name} ${identity_model_name}
 
-uats-core-operations airflow_model_name="":
+# Execute the Core Operations UATs for the Airflow
+uats-core-operations airflow_model_name="airflow":
     #!/usr/bin/bash
     set -euxo pipefail
-    uv tool install apache-airflow-ctl --quiet
 
-    airflow_model="${airflow_model_name:-airflow}"
+    # Installs airflowctl (pinned in uv.lock via the uats-core group)
+    uv sync --active --group uats-core
     pod_name="airflow-api-server-0"
     api_url="http://localhost:8080"
 
-    just deploy ${airflow_model}
-    just wait-for-active ${airflow_model}
+    just deploy ${airflow_model_name}
+    just wait-for-active ${airflow_model_name}
 
-    # Wait for the credentials file to exist inside the pod before doing anything else
+    # Wait for the credentials file to exist inside the pod before moving ahead
     echo "Waiting for ${pod_name} to finish initializing..."
     for _ in $(seq 1 60); do
-        kubectl exec -n "${airflow_model}" "${pod_name}" -c airflow-api-server -- \
+        kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
             test -f /opt/airflow/simple_auth_manager_passwords.json.generated 2>/dev/null && break
         sleep 5
     done
 
-    kubectl port-forward -n "${airflow_model}" "pod/${pod_name}" 8080:8080 &
+    # Port forward the API server directly to the pod so we can get the credentials and access token
+    kubectl port-forward -n "${airflow_model_name}" "pod/${pod_name}" 8080:8080 &
     pf_pid=$!
     trap 'kill ${pf_pid} 2>/dev/null || true' EXIT
 
@@ -253,8 +255,9 @@ uats-core-operations airflow_model_name="":
         sleep 2
     done
 
+    # Fetch the credentials from the pod and use them to get an access token for the API
     set +x
-    credentials=$(kubectl exec -n "${airflow_model}" "${pod_name}" -c airflow-api-server -- \
+    credentials=$(kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
         cat /opt/airflow/simple_auth_manager_passwords.json.generated)
     username=$(echo "${credentials}" | jq -r 'to_entries[0].key')
     password=$(echo "${credentials}" | jq -r 'to_entries[0].value')
@@ -267,4 +270,3 @@ uats-core-operations airflow_model_name="":
     set -x
 
     goss -g tests/goss/goss.yaml validate
-    
