@@ -236,13 +236,22 @@ uats-core-operations airflow_model_name="":
     just deploy ${airflow_model}
     just wait-for-active ${airflow_model}
 
+    # Wait for the credentials file to exist inside the pod before doing anything else
+    echo "Waiting for ${pod_name} to finish initializing..."
+    for _ in $(seq 1 60); do
+        kubectl exec -n "${airflow_model}" "${pod_name}" -c airflow-api-server -- \
+            test -f /opt/airflow/simple_auth_manager_passwords.json.generated 2>/dev/null && break
+        sleep 5
+    done
+
     kubectl port-forward -n "${airflow_model}" "pod/${pod_name}" 8080:8080 &
     pf_pid=$!
     trap 'kill ${pf_pid} 2>/dev/null || true' EXIT
 
+    # Wait for the webserver itself to actually respond, not just the local socket
     for _ in $(seq 1 30); do
-        (echo > /dev/tcp/localhost/8080) 2>/dev/null && break
-        sleep 1
+        curl -sf --max-time 2 "${api_url}/api/v2/monitor/health" > /dev/null 2>&1 && break
+        sleep 2
     done
 
     set +x
@@ -259,3 +268,4 @@ uats-core-operations airflow_model_name="":
     set -x
 
     goss -g tests/goss/goss.yaml validate
+    
