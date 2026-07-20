@@ -28,11 +28,16 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
     set -euxo pipefail
 
     AIRFLOW_MODEL_UUID=$(juju show-model ${airflow_model_name} --format=json | jq -r ".\"${airflow_model_name}\"[\"model-uuid\"]")
-    IDENTITY_MODEL_UUID=$(juju show-model ${identity_model_name} --format=json | jq -r ".\"${identity_model_name}\"[\"model-uuid\"]")
+    
+    if [ -n "${identity_model_name}" ] && juju show-model "${identity_model_name}" > /dev/null 2>&1; then
+        IDENTITY_MODEL_UUID=$(juju show-model ${identity_model_name} --format=json | jq -r ".\"${identity_model_name}\"[\"model-uuid\"]")
+    else
+        IDENTITY_MODEL_UUID=""
+    fi
 
     identity_options=""
 
-    if [ -n "${IDENTITY_MODEL_UUID}" ] && [ "${IDENTITY_MODEL_UUID}" != "null" ]; then
+    if [ -n "${IDENTITY_MODEL_UUID}" ]; then
         identity_options+=" -var identity_model_uuid=${IDENTITY_MODEL_UUID}"
     fi
 
