@@ -19,6 +19,9 @@ format = [
 uat = [
 	"pytest",
 ]
+uats-core = [
+    "apache-airflow-ctl>=0.1.5",
+]
 
 [tool.ruff]
 target-version = "py312"

@@ -28,7 +28,12 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
     set -euxo pipefail
 
     AIRFLOW_MODEL_UUID=$(juju show-model ${airflow_model_name} --format=json | jq -r ".\"${airflow_model_name}\"[\"model-uuid\"]")
-    IDENTITY_MODEL_UUID=$(juju show-model ${identity_model_name} --format=json | jq -r ".\"${identity_model_name}\"[\"model-uuid\"]")
+    
+    if [ -n "${identity_model_name}" ] && juju show-model "${identity_model_name}" > /dev/null 2>&1; then
+        IDENTITY_MODEL_UUID=$(juju show-model ${identity_model_name} --format=json | jq -r ".\"${identity_model_name}\"[\"model-uuid\"]")
+    else
+        IDENTITY_MODEL_UUID=""
+    fi
 
     identity_options=""
 
@@ -222,3 +227,51 @@ uats-identity airflow_model_name="airflow" identity_model_name="identity":
 
 uats airflow_model_name="airflow" identity_model_name="identity":
     just uats-identity ${airflow_model_name} ${identity_model_name}
+
+# Execute the Core Operations UATs for the Airflow
+uats-core-operations airflow_model_name="airflow":
+    #!/usr/bin/bash
+    set -euxo pipefail
+
+    # Installs airflowctl (pinned in uv.lock via the uats-core group)
+    uv sync --active --group uats-core
+    pod_name="airflow-api-server-0"
+    api_url="http://localhost:8080"
+
+    just deploy ${airflow_model_name}
+    just wait-for-active ${airflow_model_name}
+
+    # Wait for the credentials file to exist inside the pod before moving ahead
+    echo "Waiting for ${pod_name} to finish initializing..."
+    for _ in $(seq 1 60); do
+        kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
+            test -f /opt/airflow/simple_auth_manager_passwords.json.generated 2>/dev/null && break
+        sleep 5
+    done
+
+    # Port forward the API server directly to the pod so we can get the credentials and access token
+    kubectl port-forward -n "${airflow_model_name}" "pod/${pod_name}" 8080:8080 &
+    pf_pid=$!
+    trap 'kill ${pf_pid} 2>/dev/null || true' EXIT
+
+    # Wait for the webserver itself to actually respond, not just the local socket
+    for _ in $(seq 1 30); do
+        curl -sf --max-time 2 "${api_url}/api/v2/monitor/health" > /dev/null 2>&1 && break
+        sleep 2
+    done
+
+    # Fetch the credentials from the pod and use them to get an access token for the API
+    set +x
+    credentials=$(kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
+        cat /opt/airflow/simple_auth_manager_passwords.json.generated)
+    username=$(echo "${credentials}" | jq -r 'to_entries[0].key')
+    password=$(echo "${credentials}" | jq -r 'to_entries[0].value')
+
+    access_token=$(curl -sf -X POST "${api_url}/auth/token" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\": \"${username}\", \"password\": \"${password}\"}" | jq -r '.access_token')
+
+    export AIRFLOW_CLI_TOKEN="${access_token}"
+    set -x
+
+    goss -g tests/goss/goss.yaml validate

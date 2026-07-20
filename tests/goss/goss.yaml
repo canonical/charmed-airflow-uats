@@ -1,0 +1,4 @@
+command:
+  airflowctl-connectivity:
+    exec: uv run airflowctl auth login --api-url http://localhost:8080 --env production --skip-keyring
+    exit-status: 0
