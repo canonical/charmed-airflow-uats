@@ -20,7 +20,7 @@ uat = [
 	"pytest",
 ]
 uats-core = [
-    "apache-airflow-ctl",
+    "apache-airflow-ctl>=0.1.5",
 ]
 
 [tool.ruff]

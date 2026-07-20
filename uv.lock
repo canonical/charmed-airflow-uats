@@ -150,7 +150,7 @@ lint = [
     { name = "ruff" },
 ]
 uat = [{ name = "pytest" }]
-uats-core = [{ name = "apache-airflow-ctl" }]
+uats-core = [{ name = "apache-airflow-ctl", specifier = ">=0.1.5" }]
 
 [[package]]
 name = "codespell"
