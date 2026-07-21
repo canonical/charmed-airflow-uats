@@ -1,5 +1,5 @@
 # model_uuid is injected at runtime by the justfile.
-executor = "kubernetes"
+executor              = "kubernetes"
 deploy_git_integrator = true
 airflow_kubernetes_executor = {
   config = {
