@@ -78,7 +78,7 @@ create-namespace ns:
     #!/usr/bin/bash
     set -euxo pipefail
     command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
-    kubectl create namespace "${ ns }" || true
+    kubectl create namespace "${ns}" || true
 
 # Terraform fmt
 fmt: (initialize)
