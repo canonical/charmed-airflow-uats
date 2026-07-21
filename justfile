@@ -275,3 +275,68 @@ uats-core-operations airflow_model_name="airflow":
     set -x
 
     goss -g tests/goss/goss.yaml validate
+
+# Execute the Kubernetes Executor UAT: trigger a DAG run that executes in a
+# Kubernetes Pod and wait for it to complete.
+uats-kubernetes-executor airflow_model_name="airflow":
+    #!/usr/bin/bash
+    set -euxo pipefail
+
+    # Installs airflowctl (pinned in uv.lock via the uats-core group)
+    uv sync --active --group uats-core
+
+    pod_name="airflow-api-server-0"
+    api_url="http://localhost:8080"
+
+    just deploy-k8s-executor ${airflow_model_name}
+    just wait-for-active ${airflow_model_name}
+
+    # Wait for the credentials file before moving ahead
+    echo "Waiting for ${pod_name} to finish initializing..."
+    for _ in $(seq 1 60); do
+        kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
+            test -f /opt/airflow/simple_auth_manager_passwords.json.generated 2>/dev/null && break
+        sleep 5
+    done
+
+    kubectl port-forward -n "${airflow_model_name}" "pod/${pod_name}" 8080:8080 &
+    pf_pid=$!
+    trap 'kill ${pf_pid} 2>/dev/null || true' EXIT
+
+    for _ in $(seq 1 30); do
+        curl -sf --max-time 2 "${api_url}/api/v2/monitor/health" > /dev/null 2>&1 && break
+        sleep 2
+    done
+
+    # Fetch credentials, generate a token, and log airflowctl in - kept out of
+    # trace output since this repo is public.
+    set +x
+    credentials=$(kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
+        cat /opt/airflow/simple_auth_manager_passwords.json.generated)
+    username=$(echo "${credentials}" | jq -r 'to_entries[0].key')
+    password=$(echo "${credentials}" | jq -r 'to_entries[0].value')
+
+    access_token=$(curl -sf -X POST "${api_url}/auth/token" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\": \"${username}\", \"password\": \"${password}\"}" | jq -r '.access_token')
+
+    export AIRFLOW_CLI_TOKEN="${access_token}"
+    uv run airflowctl auth login --api-url "${api_url}" --env production --skip-keyring
+    set -x
+
+    echo "Waiting for example_simplest_dag to be parsed..."
+    for _ in $(seq 1 30); do
+        if ! kill -0 "${pf_pid}" 2>/dev/null; then
+            echo "Port-forward died, restarting..."
+            kubectl port-forward -n "${airflow_model_name}" "pod/${pod_name}" 8080:8080 &
+            pf_pid=$!
+            sleep 3
+        fi
+        uv run airflowctl dags list --env production 2>/dev/null | \
+            jq -e '.[] | select(.dag_id == "example_simplest_dag")' > /dev/null 2>&1 && break
+        sleep 10
+    done
+
+    # The actual connectivity + operational check: goss triggers the DAG and
+    # asserts it reaches success.
+    goss -g tests/goss/goss-kubernetes-executor.yaml validate
