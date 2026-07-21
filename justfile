@@ -80,6 +80,38 @@ create-namespace ns:
     command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
     kubectl create namespace "${ns}" || true
 
+[private]
+fetch-access-token airflow_model_name pod_name="airflow-api-server-0" api_url="http://localhost:8080":
+    #!/usr/bin/bash
+    set -euo pipefail
+    credentials=$(kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
+        cat /opt/airflow/simple_auth_manager_passwords.json.generated)
+    username=$(echo "${credentials}" | jq -r 'to_entries[0].key')
+    password=$(echo "${credentials}" | jq -r 'to_entries[0].value')
+    curl -sf -X POST "${api_url}/auth/token" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\": \"${username}\", \"password\": \"${password}\"}" | jq -r '.access_token'
+
+[private]
+wait-for-airflow-process-ready model_name pod_name="airflow-api-server-0":
+    #!/usr/bin/bash
+    set -euo pipefail
+    echo "Waiting for {{pod_name}} to finish initializing..."
+    for _ in $(seq 1 60); do
+        kubectl exec -n "{{model_name}}" "{{pod_name}}" -c airflow-api-server -- \
+            test -f /opt/airflow/simple_auth_manager_passwords.json.generated 2>/dev/null && break
+        sleep 5
+    done
+
+[private]
+wait-for-api-health api_url="http://localhost:8080":
+    #!/usr/bin/bash
+    set -euo pipefail
+    for _ in $(seq 1 30); do
+        curl -sf --max-time 2 "{{api_url}}/api/v2/monitor/health" > /dev/null 2>&1 && break
+        sleep 2
+    done
+
 # Terraform fmt
 fmt: (initialize)
     terraform -chdir=terraform fmt -recursive
@@ -241,37 +273,17 @@ uats-core-operations airflow_model_name="airflow":
     just deploy ${airflow_model_name}
     just wait-for-active ${airflow_model_name}
 
-    # Wait for the credentials file to exist inside the pod before moving ahead
-    echo "Waiting for ${pod_name} to finish initializing..."
-    for _ in $(seq 1 60); do
-        kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
-            test -f /opt/airflow/simple_auth_manager_passwords.json.generated 2>/dev/null && break
-        sleep 5
-    done
+    just wait-for-airflow-process-ready ${airflow_model_name} ${pod_name}
 
-    # Port forward the API server directly to the pod so we can get the credentials and access token
     kubectl port-forward -n "${airflow_model_name}" "pod/${pod_name}" 8080:8080 &
     pf_pid=$!
     trap 'kill ${pf_pid} 2>/dev/null || true' EXIT
 
-    # Wait for the webserver itself to actually respond, not just the local socket
-    for _ in $(seq 1 30); do
-        curl -sf --max-time 2 "${api_url}/api/v2/monitor/health" > /dev/null 2>&1 && break
-        sleep 2
-    done
+    just wait-for-api-health ${api_url}
 
     # Fetch the credentials from the pod and use them to get an access token for the API
     set +x
-    credentials=$(kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
-        cat /opt/airflow/simple_auth_manager_passwords.json.generated)
-    username=$(echo "${credentials}" | jq -r 'to_entries[0].key')
-    password=$(echo "${credentials}" | jq -r 'to_entries[0].value')
-
-    access_token=$(curl -sf -X POST "${api_url}/auth/token" \
-        -H "Content-Type: application/json" \
-        -d "{\"username\": \"${username}\", \"password\": \"${password}\"}" | jq -r '.access_token')
-
-    export AIRFLOW_CLI_TOKEN="${access_token}"
+    export AIRFLOW_CLI_TOKEN=$(just fetch-access-token ${airflow_model_name} ${pod_name} ${api_url})
     set -x
 
     goss -g tests/goss/goss.yaml validate
@@ -291,36 +303,18 @@ uats-kubernetes-executor airflow_model_name="airflow":
     just deploy-k8s-executor ${airflow_model_name}
     just wait-for-active ${airflow_model_name}
 
-    # Wait for the credentials file before moving ahead
-    echo "Waiting for ${pod_name} to finish initializing..."
-    for _ in $(seq 1 60); do
-        kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
-            test -f /opt/airflow/simple_auth_manager_passwords.json.generated 2>/dev/null && break
-        sleep 5
-    done
+    just wait-for-airflow-process-ready ${airflow_model_name} ${pod_name}
 
     kubectl port-forward -n "${airflow_model_name}" "pod/${pod_name}" 8080:8080 &
     pf_pid=$!
     trap 'kill ${pf_pid} 2>/dev/null || true' EXIT
 
-    for _ in $(seq 1 30); do
-        curl -sf --max-time 2 "${api_url}/api/v2/monitor/health" > /dev/null 2>&1 && break
-        sleep 2
-    done
+    just wait-for-api-health ${api_url}
 
     # Fetch credentials, generate a token, and log airflowctl in - kept out of
     # trace output since this repo is public.
     set +x
-    credentials=$(kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
-        cat /opt/airflow/simple_auth_manager_passwords.json.generated)
-    username=$(echo "${credentials}" | jq -r 'to_entries[0].key')
-    password=$(echo "${credentials}" | jq -r 'to_entries[0].value')
-
-    access_token=$(curl -sf -X POST "${api_url}/auth/token" \
-        -H "Content-Type: application/json" \
-        -d "{\"username\": \"${username}\", \"password\": \"${password}\"}" | jq -r '.access_token')
-
-    export AIRFLOW_CLI_TOKEN="${access_token}"
+    export AIRFLOW_CLI_TOKEN=$(just fetch-access-token ${airflow_model_name} ${pod_name} ${api_url})
     uv run airflowctl auth login --api-url "${api_url}" --env production --skip-keyring
     set -x
 
@@ -339,4 +333,5 @@ uats-kubernetes-executor airflow_model_name="airflow":
 
     # The actual connectivity + operational check: goss triggers the DAG and
     # asserts it reaches success.
+    uv run airflowctl dags unpause example_simplest_dag >/dev/null 2>&1 || true
     goss -g tests/goss/goss-kubernetes-executor.yaml validate
