@@ -3,7 +3,7 @@ executor              = "kubernetes"
 deploy_git_integrator = true
 airflow_kubernetes_executor = {
   config = {
-    base_image = "ghcr.io/dnplas/airflow-worker:3.1.8-impersonation"
+    base_image = "ubuntu/airflow:3.1-24.04_edge"
     namespace  = "airflow-executor-workers"
   }
 }
