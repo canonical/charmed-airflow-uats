@@ -46,11 +46,7 @@ variable "git_integrator" {
     app_name = optional(string, "git-integrator")
     channel  = optional(string, "1.0/edge")
     units    = optional(number, 1)
-    config = optional(map(string), {
-      repository_url = "https://github.com/apache/airflow"
-      path           = "airflow-core/src/airflow/example_dags"
-      tracking_ref   = "v3-1-stable"
-    })
+    config   = optional(map(string), {})
     revision = optional(number, null)
   })
   default = {}
