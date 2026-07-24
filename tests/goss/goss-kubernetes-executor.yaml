@@ -1,9 +1,11 @@
 command:
   airflowctl-trigger-dag-run:
-    exec: >-
+    exec: |-
       bash -c '
       dag_id="example_simplest_dag";
       run_id="uat_run_$(date +%s)";
+      # curl instead of "airflowctl dags trigger": the client always sends partition_key/bundle_version (added in Airflow 3.2.0), which this 3.1.x server rejects.
+      # Fix filed upstream - issue #70327, PR #70328. Switch back to airflowctl once that fix is released.
       curl -sf -X POST "http://localhost:8080/api/v2/dags/${dag_id}/dagRuns" \
         -H "Authorization: Bearer ${AIRFLOW_CLI_TOKEN}" \
         -H "Content-Type: application/json" \
