@@ -165,14 +165,16 @@ k8s-executor-wait-ready model_name pod_name="airflow-api-server-0" api_url="http
         "kubectl exec -n ${model_name} ${pod_name} -c airflow-api-server -- test -f /opt/airflow/simple_auth_manager_passwords.json.generated" \
         300 5
     just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-k8s-executor-pf.pid
-    just poll-until "API health check" "curl -sf --max-time 2 ${api_url}/api/v2/monitor/health" 60 2
+    just poll-until "API health check" \
+        "just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-k8s-executor-pf.pid && curl -sf --max-time 2 ${api_url}/api/v2/monitor/health" \
+        60 2
 
 # Waits for ${dag_id} to be synced and parsed via the git-integrator DAG bundle.
 [private]
 k8s-executor-wait-dag-parsed model_name pod_name="airflow-api-server-0" api_url="http://localhost:8080" dag_id="example_simplest_dag":
     just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-k8s-executor-pf.pid
     just poll-until "${dag_id} to be parsed" \
-        "uv run airflowctl dags list --env production 2>/dev/null | grep '^\['  | jq -e '.[] | select(.dag_id == \"${dag_id}\")'" \
+        "just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-k8s-executor-pf.pid && uv run airflowctl dags list --env production 2>/dev/null | grep '^\['  | jq -e '.[] | select(.dag_id == \"${dag_id}\")'" \
         300 10
 
 # Terraform fmt
