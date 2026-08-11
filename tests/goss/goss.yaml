@@ -2,3 +2,34 @@ command:
   airflowctl-connectivity:
     exec: uv run airflowctl auth login --api-url http://localhost:8080 --env production --skip-keyring
     exit-status: 0
+
+  airflowctl-list-dags:
+    exec: uv run airflowctl dags list --env production
+    exit-status: 0
+    stdout:
+      - "uat_print_message_dag"
+
+  airflowctl-trigger-dag-run:
+    exec: |-
+      bash -c '
+      dag_id="${dag_id}";
+      run_id="uat_run_$(date +%s)";
+      # curl instead of "airflowctl dags trigger": the client always sends partition_key/bundle_version (added in Airflow 3.2.0), which this 3.1.x server rejects.
+      # Fix filed upstream - issue #70327, PR #70328. Switch back to airflowctl once that fix is released.
+      just ensure-port-forward "${airflow_model_name}" airflow-api-server-0 /tmp/uats-core-operations-pf.pid;
+      curl -sf -X POST "http://localhost:8080/api/v2/dags/${dag_id}/dagRuns" \
+        -H "Authorization: Bearer ${AIRFLOW_CLI_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"dag_run_id\": \"${run_id}\", \"logical_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null &&
+      for i in $(seq 1 30); do
+        just ensure-port-forward "${airflow_model_name}" airflow-api-server-0 /tmp/uats-core-operations-pf.pid;
+        state=$(uv run airflowctl dagrun get "${dag_id}" "${run_id}" --env production --output json | jq -r ".[0].state");
+        echo "Attempt ${i}: state=${state}";
+        [ "${state}" = "success" ] && exit 0;
+        [ "${state}" = "failed" ] && exit 1;
+        sleep 5;
+      done;
+      exit 1
+      '
+    exit-status: 0
+    timeout: 180000

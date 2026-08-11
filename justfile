@@ -142,6 +142,19 @@ ensure-port-forward model_name pod_name pid_file port="8080":
     echo $! > "${pid_file}"
     sleep 2
 
+# Copies the local test DAG into the dag-processor and scheduler pods (local DAG bundle has no shared storage - each pod needs its own copy).
+[private]
+copy-local-dag model_name dag_file="tests/dags/sample_dag.py":
+    #!/usr/bin/bash
+    set -euxo pipefail
+    dag_name=$(basename "${dag_file}")
+    for pod_container in "airflow-dag-processor-0:airflow-dag-processor" "airflow-scheduler-0:airflow-scheduler"; do
+        pod="${pod_container%%:*}"
+        container="${pod_container##*:}"
+        kubectl wait --for=condition=Ready "pod/${pod}" -n "${model_name}" --timeout=120s
+        kubectl exec -n "${model_name}" "${pod}" -c "${container}" -- mkdir -p /opt/airflow/dags
+        kubectl cp "${dag_file}" "${model_name}/${pod}:/opt/airflow/dags/${dag_name}" -c "${container}"
+    done
 
 # Fetches SimpleAuthManager credentials, generates an access token, and logs airflowctl in.
 [private]
@@ -177,6 +190,14 @@ k8s-executor-wait-dag-parsed model_name pod_name="airflow-api-server-0" api_url=
         "just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-k8s-executor-pf.pid && uv run airflowctl dags list --env production 2>/dev/null | grep '^\['  | jq -e '.[] | select(.dag_id == \"${dag_id}\")'" \
         300 10
 
+# Waits for ${dag_id} to be synced and parsed via the local DAG bundle.
+[private]
+core-operations-wait-dag-parsed model_name pod_name="airflow-api-server-0" api_url="http://localhost:8080" dag_id="uat_print_message_dag":
+    just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-core-operations-pf.pid
+    just poll-until "${dag_id} to be parsed" \
+        "just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-core-operations-pf.pid && uv run airflowctl dags list --env production 2>/dev/null | grep '^\['  | jq -e '.[] | select(.dag_id == \"${dag_id}\")'" \
+        400 10
+        
 # Terraform fmt
 fmt: (initialize)
     terraform -chdir=terraform fmt -recursive
@@ -325,10 +346,16 @@ uats-identity airflow_model_name="airflow" identity_model_name="identity":
 uats airflow_model_name="airflow" identity_model_name="identity":
     just uats-identity ${airflow_model_name} ${identity_model_name}
 
-# Execute the Core Operations UATs for the Airflow
-uats-core-operations airflow_model_name="airflow":
+# Execute the Core Operations UATs for the Airflow (local executor): connectivity, list DAGs, trigger a DAG run and wait for it to complete.
+uats-core-operations airflow_model_name="airflow" dag_id="uat_print_message_dag":
     #!/usr/bin/bash
     set -euxo pipefail
+    pid_file="/tmp/uats-core-operations-pf.pid"
+    trap '
+        ec=$?
+        [ -f "${pid_file}" ] && kill "$(cat ${pid_file})" 2>/dev/null || true
+        # if [ "${ec}" -ne 0 ]; then just destroy ${airflow_model_name} || true; fi
+    ' EXIT
 
     # Installs airflowctl (pinned in uv.lock via the uats-core group)
     uv sync --active --group uats-core
@@ -339,17 +366,23 @@ uats-core-operations airflow_model_name="airflow":
     just wait-for-active ${airflow_model_name}
 
     just wait-for-airflow-process-ready ${airflow_model_name} ${pod_name}
+    just copy-local-dag ${airflow_model_name}
 
-    kubectl port-forward -n "${airflow_model_name}" "pod/${pod_name}" 8080:8080 &
-    pf_pid=$!
-    trap 'kill ${pf_pid} 2>/dev/null || true' EXIT
-
+    just ensure-port-forward ${airflow_model_name} ${pod_name} ${pid_file}
     just wait-for-api-health ${api_url}
 
     # Fetch the credentials from the pod and use them to get an access token for the API
     set +x
     export AIRFLOW_CLI_TOKEN=$(just fetch-access-token ${airflow_model_name} ${pod_name} ${api_url})
     set -x
+
+    just core-operations-wait-dag-parsed ${airflow_model_name} ${pod_name} ${api_url} ${dag_id}
+
+    uv run airflowctl dags unpause ${dag_id} > /dev/null 2>&1 || true
+    if ! uv run airflowctl dags list --env production 2>/dev/null | grep '^\[' | jq -e --arg id "${dag_id}" '.[] | select(.dag_id == $id) | .is_paused == "False"' > /dev/null; then
+        echo "ERROR: ${dag_id} is still paused after unpause attempt" >&2
+        exit 1
+    fi
 
     goss -g tests/goss/goss.yaml validate
 
