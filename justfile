@@ -182,21 +182,25 @@ k8s-executor-wait-ready model_name pod_name="airflow-api-server-0" api_url="http
         "just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-k8s-executor-pf.pid && curl -sf --max-time 2 ${api_url}/api/v2/monitor/health" \
         60 2
 
-# Waits for ${dag_id} to be synced and parsed via the git-integrator DAG bundle.
+# Waits for ${dag_id} to be synced and parsed via the DAG bundle configured for this executor.
 [private]
-k8s-executor-wait-dag-parsed model_name pod_name="airflow-api-server-0" api_url="http://localhost:8080" dag_id="example_simplest_dag":
-    just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-k8s-executor-pf.pid
+wait-dag-parsed model_name pid_file dag_id pod_name="airflow-api-server-0" timeout="300":
+    just ensure-port-forward ${model_name} ${pod_name} ${pid_file}
     just poll-until "${dag_id} to be parsed" \
-        "just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-k8s-executor-pf.pid && uv run airflowctl dags list --env production 2>/dev/null | grep '^\['  | jq -e '.[] | select(.dag_id == \"${dag_id}\")'" \
-        300 10
+        "just ensure-port-forward ${model_name} ${pod_name} ${pid_file} && uv run airflowctl dags list --env production 2>/dev/null | grep '^\['  | jq -e '.[] | select(.dag_id == \"${dag_id}\")'" \
+        ${timeout} 10
 
-# Waits for ${dag_id} to be synced and parsed via the local DAG bundle.
+# Unpauses ${dag_id} and asserts it is no longer paused.
 [private]
-core-operations-wait-dag-parsed model_name pod_name="airflow-api-server-0" api_url="http://localhost:8080" dag_id="uat_print_message_dag":
-    just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-core-operations-pf.pid
-    just poll-until "${dag_id} to be parsed" \
-        "just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-core-operations-pf.pid && uv run airflowctl dags list --env production 2>/dev/null | grep '^\['  | jq -e '.[] | select(.dag_id == \"${dag_id}\")'" \
-        400 10
+unpause-dag dag_id:
+    #!/usr/bin/bash
+    set -euo pipefail
+    uv run airflowctl dags unpause ${dag_id} > /dev/null 2>&1 || true
+    if ! uv run airflowctl dags list --env production 2>/dev/null | grep '^\[' \
+        | jq -e --arg id "${dag_id}" '.[] | select(.dag_id == $id) | .is_paused == "False"' > /dev/null; then
+        echo "ERROR: ${dag_id} is still paused after unpause attempt" >&2
+        exit 1
+    fi
 
 # Terraform fmt
 fmt: (initialize)
@@ -376,13 +380,8 @@ uats-core-operations airflow_model_name="airflow" dag_id="uat_print_message_dag"
     export AIRFLOW_CLI_TOKEN=$(just fetch-access-token ${airflow_model_name} ${pod_name} ${api_url})
     set -x
 
-    just core-operations-wait-dag-parsed ${airflow_model_name} ${pod_name} ${api_url} ${dag_id}
-
-    uv run airflowctl dags unpause ${dag_id} > /dev/null 2>&1 || true
-    if ! uv run airflowctl dags list --env production 2>/dev/null | grep '^\[' | jq -e --arg id "${dag_id}" '.[] | select(.dag_id == $id) | .is_paused == "False"' > /dev/null; then
-        echo "ERROR: ${dag_id} is still paused after unpause attempt" >&2
-        exit 1
-    fi
+    just wait-dag-parsed ${airflow_model_name} ${pid_file} ${dag_id} ${pod_name} 400
+    just unpause-dag ${dag_id}
 
     goss -g tests/goss/goss.yaml validate
 
@@ -406,12 +405,7 @@ uats-kubernetes-executor airflow_model_name="airflow" pod_name="airflow-api-serv
     export AIRFLOW_CLI_TOKEN=$(just airflowctl-login ${airflow_model_name} ${pod_name} ${api_url})
     set -x
 
-    just k8s-executor-wait-dag-parsed ${airflow_model_name} ${pod_name} ${api_url} ${dag_id}
-
-    uv run airflowctl dags unpause ${dag_id} > /dev/null 2>&1 || true
-    if ! uv run airflowctl dags list --env production 2>/dev/null | grep '^\[' | jq -e --arg id "${dag_id}" '.[] | select(.dag_id == $id) | .is_paused == "False"' > /dev/null; then
-        echo "ERROR: ${dag_id} is still paused after unpause attempt" >&2
-        exit 1
-    fi
+    just wait-dag-parsed ${airflow_model_name} /tmp/uats-k8s-executor-pf.pid ${dag_id} ${pod_name} 300
+    just unpause-dag ${dag_id}
 
     goss -g tests/goss/goss-kubernetes-executor.yaml validate

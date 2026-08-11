@@ -7,7 +7,7 @@ command:
     exec: uv run airflowctl dags list --env production
     exit-status: 0
     stdout:
-      - "${dag_id}"
+      - "{{ .Env.dag_id }}"
 
   airflowctl-trigger-dag-run:
     exec: |-
