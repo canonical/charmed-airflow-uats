@@ -197,7 +197,7 @@ core-operations-wait-dag-parsed model_name pod_name="airflow-api-server-0" api_u
     just poll-until "${dag_id} to be parsed" \
         "just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-core-operations-pf.pid && uv run airflowctl dags list --env production 2>/dev/null | grep '^\['  | jq -e '.[] | select(.dag_id == \"${dag_id}\")'" \
         400 10
-        
+
 # Terraform fmt
 fmt: (initialize)
     terraform -chdir=terraform fmt -recursive
@@ -354,7 +354,7 @@ uats-core-operations airflow_model_name="airflow" dag_id="uat_print_message_dag"
     trap '
         ec=$?
         [ -f "${pid_file}" ] && kill "$(cat ${pid_file})" 2>/dev/null || true
-        # if [ "${ec}" -ne 0 ]; then just destroy ${airflow_model_name} || true; fi
+        if [ "${ec}" -ne 0 ]; then just destroy ${airflow_model_name} || true; fi
     ' EXIT
 
     # Installs airflowctl (pinned in uv.lock via the uats-core group)
