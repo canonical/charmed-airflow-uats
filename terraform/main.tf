@@ -47,3 +47,15 @@ resource "juju_access_secret" "fernet_key" {
 
   depends_on = [module.charmed_airflow]
 }
+
+module "git_integrator" {
+  count = var.deploy_git_integrator ? 1 : 0
+
+  source     = "git::https://github.com/canonical/git-integrator//terraform?ref=git-integrator-rev4"
+  model_uuid = var.airflow_model_uuid
+  app_name   = var.git_integrator.app_name
+  channel    = var.git_integrator.channel
+  units      = var.git_integrator.units
+  config     = var.git_integrator.config
+  revision   = var.git_integrator.revision
+}
