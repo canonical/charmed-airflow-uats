@@ -10,7 +10,7 @@ from airflow.sdk import dag, task
 
 
 @dag(
-    dag_id="uat_print_message_dag",
+    dag_id="core_operations_sample_dag",
     schedule=None,
     start_date=pendulum.datetime(2024, 1, 1, tz="UTC"),
     catchup=False,

@@ -351,7 +351,7 @@ uats airflow_model_name="airflow" identity_model_name="identity":
     just uats-identity ${airflow_model_name} ${identity_model_name}
 
 # Execute the Core Operations UATs for the Airflow (local executor): connectivity, list DAGs, trigger a DAG run and wait for it to complete.
-uats-core-operations airflow_model_name="airflow" dag_id="uat_print_message_dag":
+uats-core-operations airflow_model_name="airflow" dag_id="core_operations_sample_dag":
     #!/usr/bin/bash
     set -euxo pipefail
     pid_file="/tmp/uats-core-operations-pf.pid"
