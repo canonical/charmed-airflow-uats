@@ -1,6 +1,6 @@
 # Charmed Airflow UATs
 
-Automated User Acceptance Tests (UATs) for [Charmed Airflow](https://charmhub.io/airflow-k8s).
+Automated User Acceptance Tests (UATs) for [Charmed Airflow](https://canonical-charmed-airflow.readthedocs-hosted.com/en/latest/).
 
 This repo deploys Charmed Airflow via Terraform and runs end-to-end checks against a real deployment, covering the local executor and the Kubernetes executor.
 
