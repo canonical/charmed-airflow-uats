@@ -24,3 +24,17 @@ resource "juju_integration" "coordinator_oauth" {
     endpoint = "oauth"
   }
 }
+
+resource "juju_integration" "git_integrator_to_coordinator" {
+  count      = var.deploy_git_integrator ? 1 : 0
+  model_uuid = var.airflow_model_uuid
+
+  application {
+    name     = one(module.git_integrator[*].application.name)
+    endpoint = one(module.git_integrator[*].provides.git)
+  }
+  application {
+    name     = module.charmed_airflow.applications.airflow.coordinator.application.name
+    endpoint = "git"
+  }
+}

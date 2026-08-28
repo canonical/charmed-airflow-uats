@@ -27,10 +27,10 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
     #!/usr/bin/bash
     set -euxo pipefail
 
-    AIRFLOW_MODEL_UUID=$(juju show-model ${airflow_model_name} --format=json | jq -r ".\"${airflow_model_name}\"[\"model-uuid\"]")
+    AIRFLOW_MODEL_UUID=$(juju show-model ${airflow_model_name} --format=json | jq -er ".\"${airflow_model_name}\"[\"model-uuid\"]")
     
     if [ -n "${identity_model_name}" ] && juju show-model "${identity_model_name}" > /dev/null 2>&1; then
-        IDENTITY_MODEL_UUID=$(juju show-model ${identity_model_name} --format=json | jq -r ".\"${identity_model_name}\"[\"model-uuid\"]")
+        IDENTITY_MODEL_UUID=$(juju show-model ${identity_model_name} --format=json | jq -er ".\"${identity_model_name}\"[\"model-uuid\"]")
     else
         IDENTITY_MODEL_UUID=""
     fi
@@ -70,7 +70,7 @@ wait-for-active model_name:
 configure-fernet-key model_name:
     #!/usr/bin/bash
     set -euxo pipefail
-    SECRET_URI=$(juju show-secret fernet-key-secret -m ${model_name} --format=json | jq -r 'keys[0] | "secret:" + .')
+    SECRET_URI=$(juju show-secret fernet-key-secret -m ${model_name} --format=json | jq -er 'keys[0] | "secret:" + .')
     juju config airflow-coordinator fernet_key_secret="${SECRET_URI}" -m ${model_name}
 
 [private]
@@ -78,7 +78,129 @@ create-namespace ns:
     #!/usr/bin/bash
     set -euxo pipefail
     command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
-    kubectl create namespace "${ ns }" || true
+    kubectl create namespace "${ns}" || true
+
+[private]
+fetch-access-token airflow_model_name pod_name="airflow-api-server-0" api_url="http://localhost:8080":
+    #!/usr/bin/bash
+    set -euo pipefail
+    credentials=$(kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
+        cat /opt/airflow/simple_auth_manager_passwords.json.generated)
+    username=$(echo "${credentials}" | jq -er 'to_entries[0].key')
+    password=$(echo "${credentials}" | jq -er 'to_entries[0].value')
+    curl -sf -X POST "${api_url}/auth/token" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\": \"${username}\", \"password\": \"${password}\"}" | jq -er '.access_token'
+
+[private]
+wait-for-airflow-process-ready model_name pod_name="airflow-api-server-0":
+    #!/usr/bin/bash
+    set -euo pipefail
+    echo "Waiting for ${pod_name} to finish initializing..."
+    for _ in $(seq 1 60); do
+        kubectl exec -n "${model_name}" "${pod_name}" -c airflow-api-server -- \
+            test -f /opt/airflow/simple_auth_manager_passwords.json.generated 2>/dev/null && break
+        sleep 5
+    done
+
+[private]
+wait-for-api-health api_url="http://localhost:8080":
+    #!/usr/bin/bash
+    set -euo pipefail
+    for _ in $(seq 1 30); do
+        curl -sf --max-time 2 "${api_url}/api/v2/monitor/health" > /dev/null 2>&1 && break
+        sleep 2
+    done
+
+# Generic poller: retries ${command} until it succeeds or times out, reporting a clear error on timeout.
+[private]
+poll-until description command timeout_seconds="300" interval_seconds="5":
+    #!/usr/bin/bash
+    set -euo pipefail
+    elapsed=0
+    echo "Waiting for: ${description}"
+    until eval "${command}" > /dev/null 2>&1; do
+        if [ "${elapsed}" -ge "${timeout_seconds}" ]; then
+            echo "ERROR: timed out after ${elapsed}s waiting for: ${description}" >&2
+            exit 1
+        fi
+        sleep "${interval_seconds}"
+        elapsed=$((elapsed + interval_seconds))
+    done
+    echo "Ready: ${description}"
+
+
+# Starts a kubectl port-forward to ${pod_name} if one isn't already running (tracked via ${pid_file}); idempotent across repeated calls
+[private]
+ensure-port-forward model_name pod_name pid_file port="8080":
+    #!/usr/bin/bash
+    set -euo pipefail
+    if [ -f "${pid_file}" ] && kill -0 "$(cat ${pid_file})" 2>/dev/null; then
+        exit 0
+    fi
+    kubectl port-forward -n "${model_name}" "pod/${pod_name}" ${port}:${port} > /dev/null 2>&1 &
+    echo $! > "${pid_file}"
+    sleep 2
+
+# Copies the local test DAG into the dag-processor and scheduler pods (local DAG bundle has no shared storage - each pod needs its own copy).
+[private]
+copy-local-dag model_name dag_file="tests/dags/sample_dag.py":
+    #!/usr/bin/bash
+    set -euxo pipefail
+    dag_name=$(basename "${dag_file}")
+    for pod_container in "airflow-dag-processor-0:airflow-dag-processor" "airflow-scheduler-0:airflow-scheduler"; do
+        pod="${pod_container%%:*}"
+        container="${pod_container##*:}"
+        kubectl wait --for=condition=Ready "pod/${pod}" -n "${model_name}" --timeout=120s
+        kubectl exec -n "${model_name}" "${pod}" -c "${container}" -- mkdir -p /opt/airflow/dags
+        kubectl cp "${dag_file}" "${model_name}/${pod}:/opt/airflow/dags/${dag_name}" -c "${container}"
+    done
+
+# Fetches SimpleAuthManager credentials, generates an access token, and logs airflowctl in.
+[private]
+airflowctl-login model_name pod_name="airflow-api-server-0" api_url="http://localhost:8080":
+    #!/usr/bin/bash
+    set -euo pipefail
+    token=$(just fetch-access-token ${model_name} ${pod_name} ${api_url})
+    AIRFLOW_CLI_TOKEN="${token}" uv run airflowctl auth login --api-url "${api_url}" --env production --skip-keyring >&2
+    echo "${token}"
+
+# Deploys Charmed Airflow with the Kubernetes executor and waits for all units to become active.
+[private]
+k8s-executor-deploy model_name:
+    just deploy-k8s-executor ${model_name}
+    just wait-for-active ${model_name}
+
+# Waits for the Airflow API server's process to finish initializing and for its health endpoint to respond, via a port-forward.
+[private]
+k8s-executor-wait-ready model_name pod_name="airflow-api-server-0" api_url="http://localhost:8080":
+    just poll-until "Airflow process ready (${pod_name})" \
+        "kubectl exec -n ${model_name} ${pod_name} -c airflow-api-server -- test -f /opt/airflow/simple_auth_manager_passwords.json.generated" \
+        300 5
+    just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-k8s-executor-pf.pid
+    just poll-until "API health check" \
+        "just ensure-port-forward ${model_name} ${pod_name} /tmp/uats-k8s-executor-pf.pid && curl -sf --max-time 2 ${api_url}/api/v2/monitor/health" \
+        60 2
+
+# Waits for ${dag_id} to be synced and parsed via the DAG bundle configured for this executor.
+[private]
+wait-dag-parsed model_name pid_file dag_id pod_name="airflow-api-server-0" timeout="300":
+    just ensure-port-forward ${model_name} ${pod_name} ${pid_file}
+    just poll-until "${dag_id} to be parsed" \
+        "just ensure-port-forward ${model_name} ${pod_name} ${pid_file} && uv run airflowctl dags list --env production 2>/dev/null | grep '^\['  | jq -e '.[] | select(.dag_id == \"${dag_id}\")'" \
+        ${timeout} 10
+
+# Unpauses ${dag_id} and asserts it is no longer paused.
+[private]
+unpause-dag dag_id:
+    #!/usr/bin/bash
+    set -euo pipefail
+    uv run airflowctl dags unpause ${dag_id} > /dev/null 2>&1 || true
+    if ! uv run airflowctl dags list --env production 2>/dev/null | grep '^\[' \
+        | jq -e --arg id "${dag_id}" '.[] | select(.dag_id == $id) | .is_paused == "False"' > /dev/null; then
+        echo "ERROR: ${dag_id} is still paused after unpause attempt" >&2
+        exit 1
+    fi
 
 # Terraform fmt
 fmt: (initialize)
@@ -175,7 +297,7 @@ get-system-state:
     #!/usr/bin/bash
     df -h
     echo "---"
-    for model in $(juju models --format=json | jq -r '.models[]."short-name"'); do
+    for model in $(juju models --format=json | jq -er '.models[]."short-name"'); do
         echo "=== Model: ${model} ==="
         juju status --model "${model}" --color --relations --storage || true
         echo "---"
@@ -191,12 +313,12 @@ destroy model_name identity_model_name="":
 
     EXTRA_VARS=""
     if [ -n "${identity_model_name}" ]; then
-        if IDENTITY_UUID=$(juju show-model ${identity_model_name} --format=json | jq -r ".\"${identity_model_name}\"[\"model-uuid\"]" 2>/dev/null); then
+        if IDENTITY_UUID=$(juju show-model ${identity_model_name} --format=json | jq -er ".\"${identity_model_name}\"[\"model-uuid\"]" 2>/dev/null); then
             EXTRA_VARS="-var identity_model_uuid=${IDENTITY_UUID}"
         fi
     fi
 
-    if MODEL_UUID=$(juju show-model ${model_name} --format=json | jq -r ".\"${model_name}\"[\"model-uuid\"]" 2>/dev/null); then
+    if MODEL_UUID=$(juju show-model ${model_name} --format=json | jq -er ".\"${model_name}\"[\"model-uuid\"]" 2>/dev/null); then
         terraform -chdir=terraform destroy -auto-approve \
             -var "airflow_model_uuid=${MODEL_UUID}" \
             ${EXTRA_VARS} || true
@@ -228,10 +350,16 @@ uats-identity airflow_model_name="airflow" identity_model_name="identity":
 uats airflow_model_name="airflow" identity_model_name="identity":
     just uats-identity ${airflow_model_name} ${identity_model_name}
 
-# Execute the Core Operations UATs for the Airflow
-uats-core-operations airflow_model_name="airflow":
+# Execute the Core Operations UATs for the Airflow (local executor): connectivity, list DAGs, trigger a DAG run and wait for it to complete.
+uats-core-operations airflow_model_name="airflow" dag_id="core_operations_sample_dag":
     #!/usr/bin/bash
     set -euxo pipefail
+    pid_file="/tmp/uats-core-operations-pf.pid"
+    trap '
+        ec=$?
+        [ -f "${pid_file}" ] && kill "$(cat ${pid_file})" 2>/dev/null || true
+        if [ "${ec}" -ne 0 ]; then just destroy ${airflow_model_name} || true; fi
+    ' EXIT
 
     # Installs airflowctl (pinned in uv.lock via the uats-core group)
     uv sync --active --group uats-core
@@ -241,37 +369,43 @@ uats-core-operations airflow_model_name="airflow":
     just deploy ${airflow_model_name}
     just wait-for-active ${airflow_model_name}
 
-    # Wait for the credentials file to exist inside the pod before moving ahead
-    echo "Waiting for ${pod_name} to finish initializing..."
-    for _ in $(seq 1 60); do
-        kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
-            test -f /opt/airflow/simple_auth_manager_passwords.json.generated 2>/dev/null && break
-        sleep 5
-    done
+    just wait-for-airflow-process-ready ${airflow_model_name} ${pod_name}
+    just copy-local-dag ${airflow_model_name}
 
-    # Port forward the API server directly to the pod so we can get the credentials and access token
-    kubectl port-forward -n "${airflow_model_name}" "pod/${pod_name}" 8080:8080 &
-    pf_pid=$!
-    trap 'kill ${pf_pid} 2>/dev/null || true' EXIT
-
-    # Wait for the webserver itself to actually respond, not just the local socket
-    for _ in $(seq 1 30); do
-        curl -sf --max-time 2 "${api_url}/api/v2/monitor/health" > /dev/null 2>&1 && break
-        sleep 2
-    done
+    just ensure-port-forward ${airflow_model_name} ${pod_name} ${pid_file}
+    just wait-for-api-health ${api_url}
 
     # Fetch the credentials from the pod and use them to get an access token for the API
     set +x
-    credentials=$(kubectl exec -n "${airflow_model_name}" "${pod_name}" -c airflow-api-server -- \
-        cat /opt/airflow/simple_auth_manager_passwords.json.generated)
-    username=$(echo "${credentials}" | jq -r 'to_entries[0].key')
-    password=$(echo "${credentials}" | jq -r 'to_entries[0].value')
-
-    access_token=$(curl -sf -X POST "${api_url}/auth/token" \
-        -H "Content-Type: application/json" \
-        -d "{\"username\": \"${username}\", \"password\": \"${password}\"}" | jq -r '.access_token')
-
-    export AIRFLOW_CLI_TOKEN="${access_token}"
+    export AIRFLOW_CLI_TOKEN=$(just fetch-access-token ${airflow_model_name} ${pod_name} ${api_url})
     set -x
 
+    just wait-dag-parsed ${airflow_model_name} ${pid_file} ${dag_id} ${pod_name} 400
+    just unpause-dag ${dag_id}
+
     goss -g tests/goss/goss.yaml validate
+
+# Orchestrates the Kubernetes Executor UAT: trigger a DAG run that executes in a Kubernetes Pod and wait for it to complete.
+uats-kubernetes-executor airflow_model_name="airflow" pod_name="airflow-api-server-0" api_url="http://localhost:8080" dag_id="example_simplest_dag":
+    #!/usr/bin/bash
+    set -euxo pipefail
+    pid_file="/tmp/uats-k8s-executor-pf.pid"
+    trap '
+        ec=$?
+        [ -f "${pid_file}" ] && kill "$(cat ${pid_file})" 2>/dev/null || true
+        if [ "${ec}" -ne 0 ]; then just destroy ${airflow_model_name} || true; fi
+    ' EXIT
+
+    uv sync --active --group uats-core
+
+    just k8s-executor-deploy ${airflow_model_name}
+    just k8s-executor-wait-ready ${airflow_model_name} ${pod_name} ${api_url}
+
+    set +x
+    export AIRFLOW_CLI_TOKEN=$(just airflowctl-login ${airflow_model_name} ${pod_name} ${api_url})
+    set -x
+
+    just wait-dag-parsed ${airflow_model_name} /tmp/uats-k8s-executor-pf.pid ${dag_id} ${pod_name} 300
+    just unpause-dag ${dag_id}
+
+    goss -g tests/goss/goss-kubernetes-executor.yaml validate
