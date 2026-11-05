@@ -1,0 +1,34 @@
+name: juju-4-testing
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+on:
+  schedule:
+    - cron: "17 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  tests:
+    uses: canonical/workflows-team/.github/workflows/juju-testing.yaml@main
+    with:
+      juju-channel: "4.1/edge"
+      extra-snaps: terraform,just,astral-uv,kubectl
+      test-commands: >-
+        ["just uats-identity",
+         "just uats-core-operations",
+         "just uats-kubernetes-executor"]
+      setup-command: |
+        GOSS_VERSION="v0.4.10"
+        base="https://github.com/goss-org/goss/releases/download/${GOSS_VERSION}"
+        curl -fsSL "${base}/goss_${GOSS_VERSION#v}_linux_x86_64.tar.gz" | sudo tar xz -C /usr/local/bin goss
+        sudo chmod +rx /usr/local/bin/goss
+      purge-docker: true
+      free-disk-space: true
+      timeout-minutes: 90
+      issue-labels: juju-4,bug
