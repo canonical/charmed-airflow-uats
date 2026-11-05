@@ -54,7 +54,11 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
     fi
 
 [private]
-wait-for-active model_name:
+install-jubilant:
+    uv tool install "jubilant>=1.13.0"
+
+[private]
+wait-for-active model_name: (install-jubilant)
     #!/usr/bin/env bash
     set -euxo pipefail
 

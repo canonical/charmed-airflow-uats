@@ -28,7 +28,6 @@ jobs:
         base="https://github.com/goss-org/goss/releases/download/${GOSS_VERSION}"
         curl -fsSL "${base}/goss_${GOSS_VERSION#v}_linux_x86_64.tar.gz" | sudo tar xz -C /usr/local/bin goss
         sudo chmod +rx /usr/local/bin/goss
-        uv tool install "jubilant>=1.13.0"
       purge-docker: true
       free-disk-space: true
       timeout-minutes: 90
