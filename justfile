@@ -54,13 +54,18 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
     fi
 
 [private]
-wait-for-active model_name:
+install-jubilant:
+    uv tool install "jubilant>=1.13.0"
+
+[private]
+wait-for-active model_name: (install-jubilant)
     #!/usr/bin/env bash
     set -euxo pipefail
 
-    if ! juju wait-for model ${model_name} \
-        --query='forEach(units,  unit => (unit.workload-status == "active"))' \
-        --timeout=15m; then
+    if ! jubilant wait 'jubilant.all_active(status)' \
+        --model "${model_name}" \
+        --error 'jubilant.any_error(status)' \
+        --timeout 900; then
         echo "Timed out waiting for model ${model_name} to become active" >&2
         exit 1
     fi
