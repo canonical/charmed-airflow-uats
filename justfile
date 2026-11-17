@@ -53,14 +53,25 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
             ${identity_options}
     fi
 
+# Ensure uv is available (installed via snap when missing); idempotent so it is safe to call from every entry point.
 [private]
-install-jubilant:
+install-uv:
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    if ! command -v uv >/dev/null 2>&1; then
+        sudo snap install astral-uv --classic
+    fi
+    uv --version
+
+[private]
+install-jubilant: (install-uv)
     uv tool install "jubilant>=1.13.0"
 
 [private]
 wait-for-active model_name: (install-jubilant)
     #!/usr/bin/env bash
     set -euxo pipefail
+    export PATH="${HOME}/.local/bin:${PATH}"
 
     if ! jubilant wait 'jubilant.all_active(status)' \
         --model "${model_name}" \
@@ -280,7 +291,7 @@ deploy-identity identity_model_name:
         postgres \
         --channel 14/stable \
         --trust \
-        --force
+        ${POSTGRESQL_FORCE_FLAG:-}
 
     juju integrate self-signed-certificates:certificates traefik:certificates
 
@@ -342,7 +353,7 @@ destroy model_name identity_model_name="":
     fi
 
 # Execute the UATs for the Airflow Identity integration
-uats-identity airflow_model_name="airflow" identity_model_name="identity":
+uats-identity airflow_model_name="airflow" identity_model_name="identity": (install-uv)
     #!/usr/bin/bash
     set -euxo pipefail
 
@@ -360,7 +371,7 @@ uats airflow_model_name="airflow" identity_model_name="identity":
     just uats-identity ${airflow_model_name} ${identity_model_name}
 
 # Execute the Core Operations UATs for the Airflow (local executor): connectivity, list DAGs, trigger a DAG run and wait for it to complete.
-uats-core-operations airflow_model_name="airflow" dag_id="core_operations_sample_dag":
+uats-core-operations airflow_model_name="airflow" dag_id="core_operations_sample_dag": (install-uv)
     #!/usr/bin/bash
     set -euxo pipefail
     pid_file="/tmp/uats-core-operations-pf.pid"
@@ -395,7 +406,7 @@ uats-core-operations airflow_model_name="airflow" dag_id="core_operations_sample
     goss -g tests/goss/goss.yaml validate
 
 # Orchestrates the Kubernetes Executor UAT: trigger a DAG run that executes in a Kubernetes Pod and wait for it to complete.
-uats-kubernetes-executor airflow_model_name="airflow" pod_name="airflow-api-server-0" api_url="http://localhost:8080" dag_id="example_simplest_dag":
+uats-kubernetes-executor airflow_model_name="airflow" pod_name="airflow-api-server-0" api_url="http://localhost:8080" dag_id="example_simplest_dag": (install-uv)
     #!/usr/bin/bash
     set -euxo pipefail
     pid_file="/tmp/uats-k8s-executor-pf.pid"

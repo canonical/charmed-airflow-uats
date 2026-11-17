@@ -10,6 +10,5 @@ jobs:
     uses: canonical/workflows-team/.github/workflows/terraform.yaml@main
     with:
       module-directory: .
-      extra-snaps: astral-uv
       just-targets: '["uats-identity", "uats-core-operations", "uats-kubernetes-executor"]'
       timeout-minutes: 90
