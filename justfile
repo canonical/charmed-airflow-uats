@@ -349,7 +349,10 @@ destroy model_name identity_model_name="":
             ${EXTRA_VARS} || true
     fi
 
-    terraform -chdir=terraform state rm $(terraform -chdir=terraform state list) || true
+    # Only remove state resources if they exist
+    if state_resources=$(terraform -chdir=terraform state list 2>/dev/null) && [ -n "$state_resources" ]; then
+        terraform -chdir=terraform state rm $state_resources || true
+    fi
 
     just destroy-model ${model_name} || true
 
