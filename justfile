@@ -55,6 +55,25 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
 
 [private]
 install-jubilant:
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    # Snap-based uv might not be in PATH by default; source snap environment
+    if ! command -v uv &> /dev/null; then
+        # For snap-installed uv: /snap/bin should be in PATH
+        # If not, try to find it
+        for path in /snap/bin /home/runner/.local/bin /usr/local/bin; do
+            if [ -x "${path}/uv" ]; then
+                export PATH="${path}:${PATH}"
+                break
+            fi
+        done
+    fi
+    
+    command -v uv >/dev/null 2>&1 || {
+        echo "ERROR: uv command not found. Please ensure astral-uv snap is installed." >&2
+        exit 1
+    }
+    
     uv tool install "jubilant>=1.13.0"
 
 [private]
