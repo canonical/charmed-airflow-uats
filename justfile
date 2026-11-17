@@ -73,9 +73,14 @@ wait-for-active model_name: (install-jubilant)
     set -euxo pipefail
     export PATH="${HOME}/.local/bin:${PATH}"
 
+    # Wait until all units are active, requiring the condition to hold for
+    # several consecutive polls. Transient error/crash-loop states while charms
+    # install and settle (e.g. kratos during identity-platform bring-up) are
+    # tolerated by not aborting on any_error; a unit that is genuinely stuck is
+    # still caught by the timeout.
     if ! jubilant wait 'jubilant.all_active(status)' \
         --model "${model_name}" \
-        --error 'jubilant.any_error(status)' \
+        --delay 10 \
         --timeout 900; then
         echo "Timed out waiting for model ${model_name} to become active" >&2
         exit 1
