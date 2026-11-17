@@ -5,20 +5,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  install-deps:
-    name: Install dependencies
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install astral-uv snap
-        run: |
-          sudo snap install astral-uv --classic
-          which uv && echo "✓ uv installed successfully" || { echo "✗ uv not found"; exit 1; }
-
   uats:
     name: UATs
-    needs: install-deps
     uses: canonical/workflows-team/.github/workflows/terraform.yaml@main
     with:
       module-directory: .
+      extra-snaps: astral-uv
       just-targets: '["uats-identity", "uats-core-operations", "uats-kubernetes-executor"]'
       timeout-minutes: 90
