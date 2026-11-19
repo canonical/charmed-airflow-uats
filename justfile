@@ -53,34 +53,18 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
             ${identity_options}
     fi
 
-# Ensure uv is available (installed via snap when missing); idempotent so it is safe to call from every entry point.
 [private]
-install-uv:
-    #!/usr/bin/env bash
-    set -euxo pipefail
-    if ! command -v uv >/dev/null 2>&1; then
-        sudo snap install astral-uv --classic
-    fi
-    uv --version
-
-[private]
-install-jubilant: (install-uv)
+install-jubilant:
     uv tool install "jubilant>=1.13.0"
 
 [private]
 wait-for-active model_name: (install-jubilant)
     #!/usr/bin/env bash
     set -euxo pipefail
-    export PATH="${HOME}/.local/bin:${PATH}"
 
-    # Wait until all units are active, requiring the condition to hold for
-    # several consecutive polls. Transient error/crash-loop states while charms
-    # install and settle (e.g. kratos during identity-platform bring-up) are
-    # tolerated by not aborting on any_error; a unit that is genuinely stuck is
-    # still caught by the timeout.
     if ! jubilant wait 'jubilant.all_active(status)' \
         --model "${model_name}" \
-        --delay 10 \
+        --error 'jubilant.any_error(status)' \
         --timeout 900; then
         echo "Timed out waiting for model ${model_name} to become active" >&2
         exit 1
@@ -295,8 +279,7 @@ deploy-identity identity_model_name:
     juju deploy postgresql-k8s \
         postgres \
         --channel 14/stable \
-        --trust \
-        ${POSTGRESQL_FORCE_FLAG:-}
+        --trust
 
     juju integrate self-signed-certificates:certificates traefik:certificates
 
@@ -346,10 +329,7 @@ destroy model_name identity_model_name="":
             ${EXTRA_VARS} || true
     fi
 
-    # Only remove state resources if they exist
-    if state_resources=$(terraform -chdir=terraform state list 2>/dev/null) && [ -n "$state_resources" ]; then
-        terraform -chdir=terraform state rm $state_resources || true
-    fi
+    terraform -chdir=terraform state rm $(terraform -chdir=terraform state list) || true
 
     just destroy-model ${model_name} || true
 
@@ -358,7 +338,7 @@ destroy model_name identity_model_name="":
     fi
 
 # Execute the UATs for the Airflow Identity integration
-uats-identity airflow_model_name="airflow" identity_model_name="identity": (install-uv)
+uats-identity airflow_model_name="airflow" identity_model_name="identity":
     #!/usr/bin/bash
     set -euxo pipefail
 
@@ -376,7 +356,7 @@ uats airflow_model_name="airflow" identity_model_name="identity":
     just uats-identity ${airflow_model_name} ${identity_model_name}
 
 # Execute the Core Operations UATs for the Airflow (local executor): connectivity, list DAGs, trigger a DAG run and wait for it to complete.
-uats-core-operations airflow_model_name="airflow" dag_id="core_operations_sample_dag": (install-uv)
+uats-core-operations airflow_model_name="airflow" dag_id="core_operations_sample_dag":
     #!/usr/bin/bash
     set -euxo pipefail
     pid_file="/tmp/uats-core-operations-pf.pid"
@@ -411,7 +391,7 @@ uats-core-operations airflow_model_name="airflow" dag_id="core_operations_sample
     goss -g tests/goss/goss.yaml validate
 
 # Orchestrates the Kubernetes Executor UAT: trigger a DAG run that executes in a Kubernetes Pod and wait for it to complete.
-uats-kubernetes-executor airflow_model_name="airflow" pod_name="airflow-api-server-0" api_url="http://localhost:8080" dag_id="example_simplest_dag": (install-uv)
+uats-kubernetes-executor airflow_model_name="airflow" pod_name="airflow-api-server-0" api_url="http://localhost:8080" dag_id="example_simplest_dag":
     #!/usr/bin/bash
     set -euxo pipefail
     pid_file="/tmp/uats-k8s-executor-pf.pid"
