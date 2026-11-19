@@ -279,7 +279,8 @@ deploy-identity identity_model_name:
     juju deploy postgresql-k8s \
         postgres \
         --channel 14/stable \
-        --trust
+        --trust \
+        ${POSTGRESQL_FORCE_FLAG:-}
 
     juju integrate self-signed-certificates:certificates traefik:certificates
 
