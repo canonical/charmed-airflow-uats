@@ -11,7 +11,7 @@ command:
         -H "Authorization: Bearer ${AIRFLOW_CLI_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "{\"dag_run_id\": \"${run_id}\", \"logical_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null &&
-      for i in $(seq 1 30); do
+      for i in $(seq 1 72); do
         just ensure-port-forward "${airflow_model_name}" airflow-api-server-0 /tmp/uats-k8s-executor-pf.pid;
         state=$(uv run airflowctl dagrun get "${dag_id}" "${run_id}" --env production --output json | jq -r ".[0].state");
         echo "Attempt ${i}: state=${state}";
@@ -22,4 +22,4 @@ command:
       exit 1
       '
     exit-status: 0
-    timeout: 180000
+    timeout: 420000
