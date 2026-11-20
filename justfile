@@ -41,17 +41,33 @@ apply airflow_model_name variables_file="" identity_model_name="": (initialize)
         identity_options+=" -var identity_model_uuid=${IDENTITY_MODEL_UUID}"
     fi
 
-
+    tf_vars="-var airflow_model_uuid=${AIRFLOW_MODEL_UUID} ${identity_options}"
     if [ -n "${variables_file}" ]; then
-        terraform -chdir=terraform apply -auto-approve \
-            -var "airflow_model_uuid=${AIRFLOW_MODEL_UUID}" \
-            -var-file="../${variables_file}" \
-            ${identity_options}
-    else
-        terraform -chdir=terraform apply -auto-approve \
-            -var "airflow_model_uuid=${AIRFLOW_MODEL_UUID}" \
-            ${identity_options}
+        tf_vars+=" -var-file=../${variables_file}"
     fi
+
+    # The Juju Terraform provider cannot force a deploy, and postgresql-k8s 14
+    # declares `juju < 4`. On Juju 4, deploy it with --force and import it so
+    # Terraform manages it. Settings must match module.charmed_airflow.postgresql.
+    if [ -n "${POSTGRESQL_FORCE_FLAG:-}" ]; then
+        pg_address="module.charmed_airflow.module.postgresql.juju_application.k8s_postgresql"
+        if ! juju show-application -m "${airflow_model_name}" postgresql > /dev/null 2>&1; then
+            juju deploy postgresql-k8s postgresql \
+                -m "${airflow_model_name}" \
+                --channel 14/stable \
+                --base ubuntu@22.04 \
+                --constraints arch=amd64 \
+                --config profile=testing \
+                --num-units 1 \
+                --trust \
+                ${POSTGRESQL_FORCE_FLAG}
+        fi
+        if ! terraform -chdir=terraform state list 2>/dev/null | grep -qx "${pg_address}"; then
+            terraform -chdir=terraform import ${tf_vars} "${pg_address}" "${AIRFLOW_MODEL_UUID}:postgresql"
+        fi
+    fi
+
+    terraform -chdir=terraform apply -auto-approve ${tf_vars}
 
 [private]
 install-jubilant:
